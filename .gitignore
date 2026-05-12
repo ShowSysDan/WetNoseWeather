@@ -1,5 +1,6 @@
 # Wet Nose Weather — local-only artifacts
 settings.json
+wetnose.env
 logs/
 *.pyc
 __pycache__/

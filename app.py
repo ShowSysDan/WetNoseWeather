@@ -11,6 +11,33 @@ app.config['SECRET_KEY'] = os.environ.get('WETNOSE_SECRET_KEY') or secrets.token
 
 # ── Paths ────────────────────────────────────────────────
 BASE_DIR      = os.path.dirname(os.path.abspath(__file__))
+ENV_FILE      = os.path.join(BASE_DIR, 'wetnose.env')
+
+def _load_env_file(path):
+    """Populate os.environ from a KEY=VALUE file. Existing env wins.
+    Same syntax as systemd EnvironmentFile= so the file works for both
+    `python app.py` and the gunicorn unit.
+    """
+    if not os.path.isfile(path):
+        return
+    try:
+        with open(path) as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith('#') or '=' not in line:
+                    continue
+                k, v = line.split('=', 1)
+                k = k.strip()
+                v = v.strip().strip('"').strip("'")
+                if k and k not in os.environ:
+                    os.environ[k] = v
+    except OSError:
+        pass
+
+_load_env_file(ENV_FILE)
+# Re-read SECRET_KEY in case it was set by the env file.
+app.config['SECRET_KEY'] = os.environ.get('WETNOSE_SECRET_KEY') or app.config['SECRET_KEY']
+
 SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.json')
 LOG_DIR       = os.path.join(BASE_DIR, 'logs')
 LOG_FILE      = os.path.join(LOG_DIR, 'alerts.jsonl')
@@ -643,4 +670,11 @@ log_event('SERVER_START', {'event': 'Wet Nose Weather started'})
 
 if __name__ == '__main__':
     debug = os.environ.get('WETNOSE_DEBUG', '').lower() in ('1', 'true', 'yes')
-    app.run(debug=debug, host='127.0.0.1', port=5000)
+    host = os.environ.get('WETNOSE_HOST', '127.0.0.1')
+    try:
+        port = int(os.environ.get('WETNOSE_PORT', '5000'))
+        if not (1 <= port <= 65535):
+            raise ValueError
+    except ValueError:
+        raise SystemExit(f'WETNOSE_PORT must be an integer 1-65535, got: {os.environ.get("WETNOSE_PORT")!r}')
+    app.run(debug=debug, host=host, port=port)
