@@ -70,7 +70,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 - `SysLogHandler` instances are properly closed and removed before re-attaching, preventing UDP socket leaks across config changes.
 - Secret key via `WETNOSE_SECRET_KEY` env var (auto-generated if absent; set explicitly in production).
 - Debug mode off unless `WETNOSE_DEBUG=1`.
-- Server binds to `127.0.0.1` only — put nginx/Caddy in front for LAN access.
+- Defaults to binding `127.0.0.1`. Set `WETNOSE_HOST=0.0.0.0` in `wetnose.env` to serve directly on the LAN.
 - Systemd unit enables `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome`, `ProtectKernel*`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictNamespaces`.
 - `settings.json` and `logs/` are in `.gitignore` — webhook URLs and syslog targets are never committed.
 
@@ -162,22 +162,6 @@ The unit reads `~/wetnoseweather/wetnose.env` via `EnvironmentFile=` and uses `$
 
 `ProtectHome=tmpfs` plus a single `BindPaths=` line gives the service access only to its own directory under `/home`, not to every other home dir on the box.
 
-**7. Reverse proxy (optional but recommended)**
-```nginx
-server {
-    listen 80;
-    server_name radar.yourdomain.local;
-
-    location / {
-        proxy_pass         http://127.0.0.1:5100;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 30s;
-    }
-}
-```
-
 ### Updates
 
 ```bash
@@ -202,7 +186,7 @@ There are **two** configuration files:
 
    | Variable | Default | Description |
    |----------|---------|-------------|
-   | `WETNOSE_HOST` | `127.0.0.1` | Bind address. Put nginx/Caddy in front for LAN access. |
+   | `WETNOSE_HOST` | `127.0.0.1` | Bind address. Set to `0.0.0.0` to listen on every interface for LAN access. |
    | `WETNOSE_PORT` | `5100` | Bind port, 1–65535. |
    | `WETNOSE_DEBUG` | `0` | Flask debug mode. Never enable in production. |
    | `WETNOSE_SECRET_KEY` | *(auto)* | Flask session key. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. If blank, a fresh key is generated on every process start (sessions don't survive restarts). |
