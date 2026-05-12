@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>NEXRAD Settings</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root{
+      --bg:#07080d;--surface:#0d1117;--surface2:#111820;--border:#1a2535;--border2:#243145;
+      --accent:#00c9b8;--accent-dim:#006e67;
+      --text:#6888a4;--text-mid:#94afc8;--text-bright:#cde0f0;
+      --font-mono:'Share Tech Mono',monospace;--font-ui:'Barlow Condensed',sans-serif;
+      --red:#ff2d55;--orange:#ff9f0a;--yellow:#ffd60a;--green:#30d158;
+    }
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    body{min-height:100vh;background:var(--bg);color:var(--text-bright);font-family:var(--font-mono);padding-bottom:80px}
+
+    /* ── Nav ── */
+    #topnav{height:52px;background:var(--surface);border-bottom:1px solid var(--border);
+      display:flex;align-items:center;padding:0 28px;gap:16px;position:sticky;top:0;z-index:100}
+    #nav-title{font-family:var(--font-ui);font-size:14px;font-weight:700;
+      letter-spacing:.2em;text-transform:uppercase;color:var(--accent);flex:1}
+    .nav-link{font-family:var(--font-ui);font-size:11px;font-weight:700;
+      letter-spacing:.1em;text-transform:uppercase;color:var(--text-mid);
+      text-decoration:none;padding:5px 12px;border:1px solid var(--border);
+      border-radius:3px;transition:border-color .2s,color .2s}
+    .nav-link:hover{border-color:var(--accent);color:var(--accent)}
+    .nav-link.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+    .nav-link.primary:hover{background:#00e0cd}
+
+    /* ── Page ── */
+    #page{max-width:860px;margin:0 auto;padding:32px 28px 0}
+
+    /* ── Section ── */
+    .section{margin-bottom:28px}
+    .section-header{font-family:var(--font-ui);font-size:11px;font-weight:700;
+      letter-spacing:.2em;text-transform:uppercase;color:var(--text);
+      padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:18px}
+
+    /* ── Field row ── */
+    .field-row{display:flex;align-items:flex-start;gap:24px;margin-bottom:16px}
+    .field-label{width:200px;flex-shrink:0;padding-top:5px}
+    .field-label strong{display:block;font-family:var(--font-ui);font-size:13px;
+      font-weight:700;letter-spacing:.05em;text-transform:uppercase;
+      color:var(--text-bright);margin-bottom:3px}
+    .field-label span{font-size:11px;color:var(--text);line-height:1.4}
+    .field-control{flex:1}
+
+    /* ── Mini-map ── */
+    #pos-map{width:100%;height:260px;border:1px solid var(--border);border-radius:4px;
+      background:var(--bg)}
+    .pos-controls{display:flex;align-items:center;justify-content:space-between;
+      margin-top:10px;gap:12px}
+    .arrow-grid{display:grid;grid-template-columns:repeat(3,32px);
+      grid-template-rows:repeat(2,32px);gap:3px}
+    .arrow-btn{background:var(--surface2);border:1px solid var(--border);
+      color:var(--text-mid);font-size:13px;border-radius:3px;cursor:pointer;
+      display:flex;align-items:center;justify-content:center;
+      transition:background .15s,color .15s}
+    .arrow-btn:hover{background:var(--border2);color:var(--text-bright)}
+    .arrow-btn.zoom{background:var(--bg);font-size:16px;font-weight:bold}
+    .pos-fields{display:flex;gap:10px;flex:1}
+    .pos-field{flex:1}
+    .pos-field label{display:block;font-family:var(--font-ui);font-size:9px;
+      font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+      color:var(--text);margin-bottom:4px}
+    .pos-input{width:100%;background:var(--bg);border:1px solid var(--border);
+      color:var(--text-bright);font-family:var(--font-mono);font-size:12px;
+      padding:5px 8px;border-radius:3px;outline:none}
+    .pos-input:focus{border-color:var(--accent)}
+    .pos-hint{font-family:var(--font-ui);font-size:10px;color:var(--text);
+      margin-top:6px;letter-spacing:.04em}
+
+    /* ── Inputs ── */
+    .styled-select,.styled-input{width:100%;background:var(--bg);border:1px solid var(--border);
+      color:var(--text-bright);font-family:var(--font-mono);font-size:13px;
+      padding:7px 10px;border-radius:4px;outline:none;transition:border-color .15s}
+    .styled-select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236888a4'/%3E%3C/svg%3E");
+      background-repeat:no-repeat;background-position:right 10px center;padding-right:28px;cursor:pointer}
+    .styled-select:focus,.styled-input:focus{border-color:var(--accent)}
+    .styled-select option,.styled-input{background:var(--surface)}
+
+    /* ── Range ── */
+    .range-wrap{display:flex;align-items:center;gap:10px}
+    .styled-range{flex:1;height:3px;appearance:none;background:var(--border2);
+      border-radius:2px;outline:none;cursor:pointer}
+    .styled-range::-webkit-slider-thumb{appearance:none;width:13px;height:13px;
+      border-radius:50%;background:var(--accent);cursor:pointer}
+    .range-value{font-size:12px;color:var(--accent);min-width:36px;text-align:right}
+
+    /* ── Radio buttons ── */
+    .radio-group{display:flex;gap:8px}
+    .radio-btn{flex:1;padding:9px 12px;background:var(--bg);border:1px solid var(--border);
+      border-radius:4px;cursor:pointer;display:flex;align-items:center;gap:9px;
+      transition:border-color .15s}
+    .radio-btn:hover{border-color:var(--border2)}
+    .radio-btn.selected{border-color:var(--accent)}
+    .radio-btn input[type=radio]{appearance:none;width:13px;height:13px;
+      border:2px solid var(--border2);border-radius:50%;flex-shrink:0;cursor:pointer}
+    .radio-btn.selected input[type=radio]{border-color:var(--accent);
+      background:radial-gradient(circle at center,var(--accent) 40%,transparent 40%)}
+    .radio-label{font-family:var(--font-ui);font-size:13px;font-weight:600;
+      letter-spacing:.05em;text-transform:uppercase;color:var(--text-mid)}
+    .radio-btn.selected .radio-label{color:var(--text-bright)}
+
+    /* ── Toggle ── */
+    .toggle-wrap{display:flex;align-items:center;gap:10px}
+    .toggle{position:relative;width:42px;height:23px;cursor:pointer;flex-shrink:0}
+    .toggle input{display:none}
+    .toggle-track{position:absolute;inset:0;border-radius:12px;
+      background:var(--border2);border:1px solid var(--border);transition:background .2s}
+    .toggle-thumb{position:absolute;top:3px;left:3px;width:15px;height:15px;
+      border-radius:50%;background:var(--text);transition:left .2s,background .2s}
+    .toggle input:checked~.toggle-track{background:var(--accent-dim);border-color:var(--accent)}
+    .toggle input:checked~.toggle-thumb{left:22px;background:var(--accent)}
+    .toggle-desc{font-family:var(--font-ui);font-size:13px;font-weight:600;
+      letter-spacing:.05em;color:var(--text-mid)}
+
+    /* ── Dependency-hidden fields ── */
+    .rv-only,.nws-only{transition:opacity .2s}
+    .rv-only.hidden,.nws-only.hidden{opacity:.3;pointer-events:none}
+
+    /* ── Station status ── */
+    .station-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+    .station-card{background:var(--bg);border:1px solid var(--border);
+      border-left:3px solid var(--border2);border-radius:3px;padding:10px 13px}
+    .station-card.active{border-left-color:var(--accent)}
+    .station-card.online{border-left-color:var(--green)}
+    .station-card.offline{border-left-color:var(--red)}
+    .station-name{font-family:var(--font-ui);font-size:13px;font-weight:700;
+      letter-spacing:.05em;text-transform:uppercase;color:var(--text-bright);margin-bottom:4px}
+    .station-detail{font-size:10px;color:var(--text-mid);line-height:1.5;font-family:var(--font-mono)}
+    #active-station-note{margin-top:10px;font-family:var(--font-ui);font-size:11px;
+      color:var(--text);letter-spacing:.05em}
+
+    /* ── Config summary ── */
+    #preview-card{background:var(--surface);border:1px solid var(--border);border-radius:4px;
+      padding:14px 18px;display:flex;flex-wrap:wrap;gap:20px}
+    .preview-item strong{display:block;font-size:9px;font-family:var(--font-ui);
+      font-weight:700;letter-spacing:.15em;text-transform:uppercase;
+      color:var(--text);margin-bottom:2px}
+    .preview-item span{color:var(--accent);font-size:13px;font-weight:600;
+      font-family:var(--font-ui)}
+
+    /* ── Alert log ── */
+    #log-box{background:var(--bg);border:1px solid var(--border);border-radius:4px;
+      height:280px;overflow-y:auto;padding:8px;font-size:10px;line-height:1.6}
+    #log-box::-webkit-scrollbar{width:3px}
+    #log-box::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px}
+    .log-entry{display:grid;grid-template-columns:140px 120px 90px 1fr;gap:6px;
+      padding:3px 4px;border-radius:2px;align-items:baseline}
+    .log-entry:hover{background:var(--surface)}
+    .log-ts{color:var(--text);letter-spacing:.02em}
+    .log-type{font-family:var(--font-ui);font-weight:700;letter-spacing:.06em;text-transform:uppercase}
+    .log-type.NEW_ALERT{color:var(--orange)}
+    .log-type.CLEARED_ALERT{color:var(--green)}
+    .log-type.SERVER_START{color:var(--accent)}
+    .log-type.STATION_FAILOVER{color:var(--yellow)}
+    .log-type.SETTINGS_CHANGED{color:var(--text-mid)}
+    .log-sev{font-family:var(--font-ui);font-weight:700;letter-spacing:.05em;font-size:9px;text-transform:uppercase}
+    .log-sev.Extreme{color:var(--red)} .log-sev.Severe{color:var(--orange)}
+    .log-sev.Moderate{color:var(--yellow)} .log-sev.Minor{color:var(--green)}
+    .log-detail{color:var(--text-mid);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .log-controls{display:flex;gap:8px;margin-top:8px}
+
+    /* ── Save bar ── */
+    #save-bar{position:fixed;bottom:0;left:0;right:0;height:58px;
+      background:var(--surface);border-top:1px solid var(--border);
+      display:flex;align-items:center;justify-content:space-between;padding:0 28px;z-index:200}
+    #save-status{font-family:var(--font-ui);font-size:12px;font-weight:600;
+      letter-spacing:.08em;text-transform:uppercase;color:var(--text);min-width:360px}
+    #save-status.success{color:var(--green)} #save-status.error{color:var(--red)}
+    #save-hint{font-size:10px;color:var(--text);font-family:var(--font-ui);letter-spacing:.05em}
+    #save-btn{background:var(--accent);border:none;color:var(--bg);font-family:var(--font-ui);
+      font-size:13px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+      padding:10px 28px;border-radius:4px;cursor:pointer;transition:background .15s,transform .1s}
+    #save-btn:hover{background:#00e0cd} #save-btn:active{transform:scale(.97)}
+    #save-btn:disabled{background:var(--border2);cursor:not-allowed}
+
+    .small-btn{background:var(--bg);border:1px solid var(--border);color:var(--text-mid);
+      font-family:var(--font-ui);font-size:10px;font-weight:700;letter-spacing:.1em;
+      text-transform:uppercase;padding:4px 10px;border-radius:3px;cursor:pointer;
+      transition:border-color .15s,color .15s}
+    .small-btn:hover{border-color:var(--accent);color:var(--accent)}
+    .small-btn.danger:hover{border-color:var(--red);color:var(--red)}
+  </style>
+</head>
+<body>
+
+<div id="topnav">
+  <div id="nav-title">NEXRAD · Settings</div>
+  <a class="nav-link" href="/">← Main View</a>
+  <a class="nav-link primary" href="/output" target="_blank">View Output ↗</a>
+</div>
+
+<div id="page">
+
+  <!-- ── Config summary ── -->
+  <div class="section">
+    <div class="section-header">Current Configuration</div>
+    <div id="preview-card">
+      <div class="preview-item"><strong>Source</strong><span id="prev-source">—</span></div>
+      <div class="preview-item"><strong>Location</strong><span id="prev-loc">—</span></div>
+      <div class="preview-item"><strong>Zoom</strong><span id="prev-zoom">—</span></div>
+      <div class="preview-item"><strong>Opacity</strong><span id="prev-opacity">—</span></div>
+      <div class="preview-item"><strong>Speed</strong><span id="prev-speed">—</span></div>
+      <div class="preview-item"><strong>Alert Sidebar</strong><span id="prev-sidebar">—</span></div>
+      <div class="preview-item"><strong>Overlays</strong><span id="prev-overlays">—</span></div>
+    </div>
+  </div>
+
+  <!-- ── Map position ── -->
+  <div class="section">
+    <div class="section-header">Map Position</div>
+    <div class="field-row">
+      <div class="field-label">
+        <strong>Center & Zoom</strong>
+        <span>Drag the marker, click the map, or use arrow keys. Shift+Arrow = larger step.</span>
+      </div>
+      <div class="field-control">
+        <div id="pos-map"></div>
+        <div class="pos-controls">
+          <div class="arrow-grid">
+            <div></div>
+            <button class="arrow-btn" onclick="panMap(0.05,0)" title="North">↑</button>
+            <button class="arrow-btn zoom" onclick="zoomMap(1)" title="Zoom in">+</button>
+            <button class="arrow-btn" onclick="panMap(0,-0.05)" title="West">←</button>
+            <button class="arrow-btn" onclick="panMap(-0.05,0)" title="South">↓</button>
+            <button class="arrow-btn" onclick="panMap(0,0.05)" title="East">→</button>
+            <div></div><div></div>
+            <button class="arrow-btn zoom" onclick="zoomMap(-1)" title="Zoom out">−</button>
+          </div>
+          <div class="pos-fields">
+            <div class="pos-field">
+              <label>Latitude</label>
+              <input class="pos-input" id="map_lat" type="number" step="0.0001" oninput="syncMapFromFields()">
+            </div>
+            <div class="pos-field">
+              <label>Longitude</label>
+              <input class="pos-input" id="map_lon" type="number" step="0.0001" oninput="syncMapFromFields()">
+            </div>
+            <div class="pos-field">
+              <label>Zoom</label>
+              <input class="pos-input" id="map_zoom_input" type="number" min="4" max="14" step="1" oninput="syncMapFromFields()">
+            </div>
+          </div>
+        </div>
+        <div class="pos-hint">Arrow keys pan the map (Shift = 5× step) · +/− keys adjust zoom</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Station status ── -->
+  <div class="section">
+    <div class="section-header">Radar Station Status</div>
+    <div class="station-grid">
+      <div class="station-card" id="sc-KMLB">
+        <div class="station-name">KMLB — Melbourne</div>
+        <div class="station-detail" id="sc-KMLB-detail">Checking...</div>
+      </div>
+      <div class="station-card" id="sc-KTBW">
+        <div class="station-name">KTBW — Tampa Bay</div>
+        <div class="station-detail" id="sc-KTBW-detail">Checking...</div>
+      </div>
+    </div>
+    <div id="active-station-note">Loading radar status...</div>
+  </div>
+
+  <!-- ── Radar source ── -->
+  <div class="section">
+    <div class="section-header">Radar Source</div>
+    <div class="field-row">
+      <div class="field-label"><strong>Source</strong>
+        <span>Changing triggers an output reload.</span></div>
+      <div class="field-control">
+        <div class="radio-group">
+          <label class="radio-btn" id="rb-rv">
+            <input type="radio" name="radar_source" value="rainviewer">
+            <span class="radio-label">RainViewer (Animated)</span>
+          </label>
+          <label class="radio-btn" id="rb-nws">
+            <input type="radio" name="radar_source" value="nws">
+            <span class="radio-label">NWS WMS (Live)</span>
+          </label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── RainViewer options ── -->
+  <div class="section rv-only">
+    <div class="section-header">RainViewer Options</div>
+    <div class="field-row">
+      <div class="field-label"><strong>Color Scheme</strong></div>
+      <div class="field-control">
+        <select class="styled-select" id="rv_color">
+          <option value="0">0 — Original</option>
+          <option value="1">1 — Universal Blue</option>
+          <option value="2">2 — TITAN</option>
+          <option value="3">3 — The Weather Channel</option>
+          <option value="4">4 — Meteored</option>
+          <option value="5">5 — NEXRAD Level III</option>
+          <option value="6">6 — Rainbow / SELEX-SI</option>
+          <option value="7">7 — Dark Sky</option>
+        </select>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Animation Speed</strong></div>
+      <div class="field-control">
+        <select class="styled-select" id="anim_speed">
+          <option value="900">Slow (900ms)</option>
+          <option value="500">Normal (500ms)</option>
+          <option value="200">Fast (200ms)</option>
+          <option value="80">Max (80ms)</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── NWS product ── -->
+  <div class="section nws-only hidden">
+    <div class="section-header">NWS Radar Product</div>
+    <div class="field-row">
+      <div class="field-label"><strong>Product Layer</strong>
+        <span>Applied to the NWS WMS tile service.</span></div>
+      <div class="field-control">
+        <select class="styled-select" id="nws_product">
+          <option value="conus_bref_qcd">Base Reflectivity (BREF)</option>
+          <option value="conus_cref_qcd">Composite Reflectivity (CREF)</option>
+          <option value="conus_bvel_qcd">Base Velocity (BVEL)</option>
+          <option value="conus_n1p_qcd">1-Hour Precipitation</option>
+          <option value="conus_ntp_qcd">Storm-Total Precipitation</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Overlay layers ── -->
+  <div class="section">
+    <div class="section-header">Overlay Layers</div>
+
+    <div class="field-row">
+      <div class="field-label"><strong>Alert Polygons</strong>
+        <span>Draw NWS warned areas on the map, color-coded by severity.</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="show_alert_polygons">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-polygons">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field-label"><strong>Range Rings</strong>
+        <span>Distance circles from the active radar site at 50, 100, 200 nm.</span></div>
+      <div class="field-control">
+        <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+          <div class="toggle-wrap">
+            <label class="toggle"><input type="checkbox" id="show_range_rings">
+              <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+            <span class="toggle-desc" id="td-rings">—</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-family:var(--font-ui);font-size:11px;color:var(--text);letter-spacing:.08em;text-transform:uppercase">Station:</span>
+            <select class="styled-select" id="range_ring_station" style="width:auto;padding:4px 28px 4px 8px">
+              <option value="KMLB">KMLB Melbourne</option>
+              <option value="KTBW">KTBW Tampa Bay</option>
+            </select>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="field-row rv-only">
+      <div class="field-label"><strong>Satellite IR</strong>
+        <span>RainViewer infrared satellite overlay (available in free API tier; lightning requires a paid key).</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="show_satellite_ir">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-satellite">—</span>
+        </div>
+      </div>
+    </div>
+
+    <div class="field-row">
+      <div class="field-label"><strong>Hurricane Track</strong>
+        <span>NHC/nowCOAST tropical cyclone forecast cone. Shows nothing when no active storms.</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="show_hurricane">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-hurricane">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Display ── -->
+  <div class="section">
+    <div class="section-header">Display Options</div>
+    <div class="field-row">
+      <div class="field-label"><strong>Radar Opacity</strong></div>
+      <div class="field-control">
+        <div class="range-wrap">
+          <input type="range" class="styled-range" id="opacity" min="10" max="100" step="5"
+            oninput="document.getElementById('opacity-val').textContent=this.value+'%'">
+          <span class="range-value" id="opacity-val">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Alert Sidebar</strong>
+        <span>Show active-alerts panel on the output display.</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="show_sidebar">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-sidebar">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Webhook ── -->
+  <div class="section">
+    <div class="section-header">Webhook Notifications</div>
+    <div class="field-row">
+      <div class="field-label"><strong>Webhook URL</strong>
+        <span>POST on new alerts. Compatible with Slack, Teams, and generic JSON endpoints.</span></div>
+      <div class="field-control">
+        <input class="styled-input" type="url" id="webhook_url" placeholder="https://...">
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Min Severity</strong>
+        <span>Only fire for alerts at or above this severity.</span></div>
+      <div class="field-control">
+        <select class="styled-select" id="webhook_min_severity">
+          <option value="Extreme">Extreme only</option>
+          <option value="Severe">Severe and above</option>
+          <option value="Moderate">Moderate and above</option>
+          <option value="Minor">All alerts</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Syslog ── -->
+  <div class="section">
+    <div class="section-header">Syslog</div>
+    <div class="field-row">
+      <div class="field-label"><strong>Enable</strong>
+        <span>Send alert events and system messages to a remote syslog server.</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="syslog_enabled" onchange="toggleSyslogFields()">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-syslog">Disabled</span>
+        </div>
+      </div>
+    </div>
+    <div id="syslog-fields" style="opacity:.35;pointer-events:none;transition:opacity .2s">
+      <div class="field-row">
+        <div class="field-label"><strong>Host</strong></div>
+        <div class="field-control">
+          <input class="styled-input" type="text" id="syslog_host" placeholder="192.168.1.100">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label"><strong>Port</strong></div>
+        <div class="field-control">
+          <input class="styled-input" type="number" id="syslog_port" placeholder="514" min="1" max="65535">
+        </div>
+      </div>
+      <div class="field-row">
+        <div class="field-label"><strong>Facility</strong></div>
+        <div class="field-control">
+          <select class="styled-select" id="syslog_facility">
+            <option value="local0">local0</option>
+            <option value="local1">local1</option>
+            <option value="local2">local2</option>
+            <option value="local3">local3</option>
+            <option value="local4">local4</option>
+            <option value="local5">local5</option>
+            <option value="local6">local6</option>
+            <option value="local7">local7</option>
+            <option value="user">user</option>
+            <option value="daemon">daemon</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Alert log ── -->
+  <div class="section">
+    <div class="section-header">Alert Log</div>
+    <div id="log-box"><div style="color:var(--text);padding:8px">Loading...</div></div>
+    <div class="log-controls">
+      <button class="small-btn" onclick="loadLog()">↺ Refresh</button>
+      <button class="small-btn danger" onclick="clearLog()">✕ Clear Log</button>
+      <span id="log-count" style="font-family:var(--font-ui);font-size:10px;color:var(--text);letter-spacing:.05em;margin-left:4px"></span>
+    </div>
+  </div>
+
+</div><!-- /page -->
+
+<!-- ── Save bar ── -->
+<div id="save-bar">
+  <div id="save-status">Ready</div>
+  <div id="save-hint">Output reloads within ~10s of saving.</div>
+  <button id="save-btn" onclick="saveSettings()">Save &amp; Apply</button>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Position mini-map ─────────────────────────────────────
+let posMap, posMarker;
+
+function initPosMap(lat, lon, zoom){
+  posMap=L.map('pos-map',{zoomControl:true,scrollWheelZoom:true});
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    attribution:'© OSM © CARTO',subdomains:'abcd',maxZoom:19,
+  }).addTo(posMap);
+  posMap.setView([lat,lon],zoom);
+  posMarker=L.marker([lat,lon],{draggable:true}).addTo(posMap);
+  posMarker.on('dragend',()=>{
+    const ll=posMarker.getLatLng();
+    setFields(ll.lat,ll.lng,posMap.getZoom());
+  });
+  posMap.on('click',e=>{
+    posMarker.setLatLng(e.latlng);
+    setFields(e.latlng.lat,e.latlng.lng,posMap.getZoom());
+  });
+  posMap.on('zoomend',()=>{
+    document.getElementById('map_zoom_input').value=posMap.getZoom();
+  });
+}
+
+function setFields(lat,lon,zoom){
+  document.getElementById('map_lat').value=lat.toFixed(4);
+  document.getElementById('map_lon').value=lon.toFixed(4);
+  document.getElementById('map_zoom_input').value=zoom;
+}
+
+function syncMapFromFields(){
+  const lat=parseFloat(document.getElementById('map_lat').value);
+  const lon=parseFloat(document.getElementById('map_lon').value);
+  const zoom=parseInt(document.getElementById('map_zoom_input').value);
+  if(isNaN(lat)||isNaN(lon)) return;
+  posMap.setView([lat,lon],isNaN(zoom)?posMap.getZoom():zoom);
+  posMarker.setLatLng([lat,lon]);
+}
+
+function panMap(dlat,dlon,step=1){
+  const lat=parseFloat(document.getElementById('map_lat').value)||0;
+  const lon=parseFloat(document.getElementById('map_lon').value)||0;
+  const newLat=Math.max(-85,Math.min(85,lat+dlat*step));
+  const newLon=Math.max(-180,Math.min(180,lon+dlon*step));
+  setFields(newLat,newLon,posMap.getZoom());
+  posMap.setView([newLat,newLon]);
+  posMarker.setLatLng([newLat,newLon]);
+}
+
+function zoomMap(delta){
+  const newZ=Math.max(2,Math.min(18,posMap.getZoom()+delta));
+  posMap.setZoom(newZ);
+  document.getElementById('map_zoom_input').value=newZ;
+}
+
+document.addEventListener('keydown',e=>{
+  const active=document.activeElement;
+  if(active&&['INPUT','TEXTAREA','SELECT'].includes(active.tagName)) return;
+  if(!posMap) return;
+  const step=e.shiftKey?5:1;
+  const base=0.05;
+  switch(e.key){
+    case 'ArrowUp':    panMap(base,0,step);   e.preventDefault(); break;
+    case 'ArrowDown':  panMap(-base,0,step);  e.preventDefault(); break;
+    case 'ArrowLeft':  panMap(0,-base,step);  e.preventDefault(); break;
+    case 'ArrowRight': panMap(0,base,step);   e.preventDefault(); break;
+    case '+': case '=': zoomMap(1);  e.preventDefault(); break;
+    case '-': case '_': zoomMap(-1); e.preventDefault(); break;
+  }
+});
+
+// ── Toggle helpers ────────────────────────────────────────
+function bindToggle(id,descId){
+  const cb=document.getElementById(id);
+  const desc=document.getElementById(descId);
+  if(!cb||!desc) return;
+  const update=()=>{desc.textContent=cb.checked?'Enabled':'Disabled'};
+  cb.addEventListener('change',update); update();
+}
+
+function toggleSyslogFields(){
+  const en=document.getElementById('syslog_enabled').checked;
+  document.getElementById('syslog-fields').style.opacity=en?'1':'0.35';
+  document.getElementById('syslog-fields').style.pointerEvents=en?'auto':'none';
+  document.getElementById('td-syslog').textContent=en?'Enabled':'Disabled';
+}
+
+// ── Source visibility ─────────────────────────────────────
+function updateSourceVis(src){
+  document.querySelectorAll('.rv-only').forEach(el=>el.classList.toggle('hidden',src!=='rainviewer'));
+  document.querySelectorAll('.nws-only').forEach(el=>el.classList.toggle('hidden',src==='rainviewer'));
+}
+
+document.querySelectorAll('input[name=radar_source]').forEach(r=>{
+  r.addEventListener('change',()=>{
+    document.querySelectorAll('.radio-btn').forEach(b=>
+      b.classList.toggle('selected',b.querySelector('input').checked));
+    updateSourceVis(r.value);
+  });
+});
+
+// ── Load settings ─────────────────────────────────────────
+const SPEED_NAMES={900:'Slow',500:'Normal',200:'Fast',80:'Max'};
+const COLOR_NAMES={0:'Original',1:'Universal Blue',2:'TITAN',3:'TWC',
+                   4:'Meteored',5:'NEXRAD L3',6:'Rainbow',7:'Dark Sky'};
+
+async function loadSettings(){
+  try{
+    const s=await fetch('/api/settings',{cache:'no-store'}).then(r=>r.json());
+    applyToForm(s); updatePreview(s);
+    initPosMap(s.map_lat||28.5383, s.map_lon||-81.3792, s.map_zoom||8);
+    setTimeout(()=>posMap.invalidateSize(),200);
+  }catch(e){ setStatus('⚠ Could not load settings','error'); }
+}
+
+function applyToForm(s){
+  // Source radios
+  document.querySelectorAll('input[name=radar_source]').forEach(r=>{
+    r.checked=r.value===s.radar_source;
+    r.closest('.radio-btn').classList.toggle('selected',r.checked);
+  });
+  updateSourceVis(s.radar_source);
+
+  // Dropdowns
+  document.getElementById('rv_color').value=s.rv_color??6;
+  document.getElementById('anim_speed').value=s.anim_speed??500;
+  document.getElementById('nws_product').value=s.nws_product||'conus_bref_qcd';
+  document.getElementById('range_ring_station').value=s.range_ring_station||'KMLB';
+  document.getElementById('webhook_min_severity').value=s.webhook_min_severity||'Severe';
+  document.getElementById('syslog_facility').value=s.syslog_facility||'local0';
+
+  // Opacity range
+  const op=document.getElementById('opacity');
+  op.value=s.opacity??70;
+  document.getElementById('opacity-val').textContent=op.value+'%';
+
+  // Text inputs
+  document.getElementById('webhook_url').value=s.webhook_url||'';
+  document.getElementById('syslog_host').value=s.syslog_host||'';
+  document.getElementById('syslog_port').value=s.syslog_port||514;
+
+  // Toggles
+  const toggles=[
+    ['show_sidebar','td-sidebar'],['show_alert_polygons','td-polygons'],
+    ['show_range_rings','td-rings'],['show_satellite_ir','td-satellite'],
+    ['show_hurricane','td-hurricane'],
+  ];
+  toggles.forEach(([id,desc])=>{
+    document.getElementById(id).checked=s[id]!==false;
+    bindToggle(id,desc);
+  });
+
+  // Syslog
+  document.getElementById('syslog_enabled').checked=!!s.syslog_enabled;
+  toggleSyslogFields();
+  document.getElementById('map_lat').value=(s.map_lat||28.5383).toFixed(4);
+  document.getElementById('map_lon').value=(s.map_lon||-81.3792).toFixed(4);
+  document.getElementById('map_zoom_input').value=s.map_zoom||8;
+}
+
+function updatePreview(s){
+  document.getElementById('prev-source').textContent=s.radar_source==='rainviewer'?'RainViewer':'NWS WMS';
+  document.getElementById('prev-loc').textContent=`${(s.map_lat||0).toFixed(3)}, ${(s.map_lon||0).toFixed(3)}`;
+  document.getElementById('prev-zoom').textContent=s.map_zoom||8;
+  document.getElementById('prev-opacity').textContent=(s.opacity??70)+'%';
+  document.getElementById('prev-speed').textContent=
+    s.radar_source==='rainviewer'?(SPEED_NAMES[s.anim_speed]||s.anim_speed+'ms'):'N/A';
+  document.getElementById('prev-sidebar').textContent=s.show_sidebar!==false?'On':'Off';
+  const ov=[];
+  if(s.show_alert_polygons) ov.push('Polygons');
+  if(s.show_range_rings)    ov.push('Rings');
+  if(s.show_satellite_ir)      ov.push('Lightning');
+  if(s.show_hurricane)      ov.push('Hurricane');
+  document.getElementById('prev-overlays').textContent=ov.length?ov.join(', '):'None';
+}
+
+// ── Radar status ──────────────────────────────────────────
+async function loadRadarStatus(){
+  try{
+    const s=await fetch('/api/radar_status',{cache:'no-store'}).then(r=>r.json());
+    for(const [sid,info] of Object.entries(s.stations||{})){
+      const card=document.getElementById(`sc-${sid}`);
+      const detail=document.getElementById(`sc-${sid}-detail`);
+      if(!card||!detail) continue;
+      card.className='station-card';
+      if(s.station===sid) card.classList.add('active');
+      else card.classList.add(info.online?'online':'offline');
+      const age=info.age_minutes!=null?`${Math.round(info.age_minutes)}m ago`:'age unknown';
+      detail.textContent=`${info.online?'● Online':'○ Offline'} · VCP ${info.vcp||'—'} · ${info.op_status||'—'} · ${age}`;
+      if(info.error) detail.textContent+=` · ${info.error}`;
+    }
+    const note=document.getElementById('active-station-note');
+    const fb=s.fallback?`⚠ Fallback: ${s.station} (primary offline)`:`✓ Primary: ${s.station}`;
+    note.textContent=`${fb} · VCP ${s.vcp||'—'} · ${s.mode} · ${s.label} · redraw every ${s.scan_interval_seconds}s`;
+    note.style.color=s.fallback?'var(--yellow)':'var(--green)';
+  }catch(e){ document.getElementById('active-station-note').textContent='⚠ Could not reach radar status'; }
+}
+
+// ── Alert log ─────────────────────────────────────────────
+async function loadLog(){
+  try{
+    const {entries}=await fetch('/api/logs?n=200',{cache:'no-store'}).then(r=>r.json());
+    const box=document.getElementById('log-box');
+    document.getElementById('log-count').textContent=`${entries.length} entries`;
+    if(!entries.length){
+      box.innerHTML='<div style="color:var(--text);padding:8px;font-family:var(--font-ui)">No log entries yet.</div>';
+      return;
+    }
+    box.innerHTML=entries.map(e=>{
+      const ts=new Date(e.ts).toLocaleString([],{month:'short',day:'numeric',
+        hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      return`<div class="log-entry">
+        <span class="log-ts">${ts}</span>
+        <span class="log-type ${e.type}">${e.type}</span>
+        <span class="log-sev ${e.severity}">${e.severity||''}</span>
+        <span class="log-detail">${e.event||''}${e.area?' — '+e.area:''}</span>
+      </div>`;
+    }).join('');
+  }catch(e){ document.getElementById('log-box').innerHTML='<div style="color:var(--red);padding:8px">Error loading log</div>'; }
+}
+
+async function clearLog(){
+  if(!confirm('Clear the entire alert log?')) return;
+  await fetch('/api/logs/clear',{method:'POST'});
+  loadLog();
+}
+
+// ── Save ──────────────────────────────────────────────────
+async function saveSettings(){
+  const btn=document.getElementById('save-btn');
+  btn.disabled=true; setStatus('Saving...','');
+  const payload={
+    radar_source: document.querySelector('input[name=radar_source]:checked')?.value||'rainviewer',
+    rv_color:     parseInt(document.getElementById('rv_color').value),
+    anim_speed:   parseInt(document.getElementById('anim_speed').value),
+    nws_product:  document.getElementById('nws_product').value,
+    opacity:      parseInt(document.getElementById('opacity').value),
+    map_lat:      parseFloat(document.getElementById('map_lat').value),
+    map_lon:      parseFloat(document.getElementById('map_lon').value),
+    map_zoom:     parseInt(document.getElementById('map_zoom_input').value),
+    show_sidebar:        document.getElementById('show_sidebar').checked,
+    show_alert_polygons: document.getElementById('show_alert_polygons').checked,
+    show_range_rings:    document.getElementById('show_range_rings').checked,
+    range_ring_station:  document.getElementById('range_ring_station').value,
+    show_satellite_ir:      document.getElementById('show_satellite_ir').checked,
+    show_hurricane:      document.getElementById('show_hurricane').checked,
+    webhook_url:          document.getElementById('webhook_url').value.trim(),
+    webhook_min_severity: document.getElementById('webhook_min_severity').value,
+    syslog_enabled:  document.getElementById('syslog_enabled').checked,
+    syslog_host:     document.getElementById('syslog_host').value.trim(),
+    syslog_port:     parseInt(document.getElementById('syslog_port').value)||514,
+    syslog_facility: document.getElementById('syslog_facility').value,
+  };
+  try{
+    const resp=await fetch('/api/settings',{method:'POST',
+      headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!resp.ok) throw new Error(`HTTP ${resp.status}`);
+    const saved=await resp.json();
+    updatePreview(saved);
+    setStatus('✓ Saved — output reloads within ~10s','success');
+    setTimeout(()=>setStatus('Ready',''),6000);
+  }catch(e){ setStatus('⚠ Save failed: '+e.message,'error'); }
+  finally{ btn.disabled=false; }
+}
+
+function setStatus(msg,cls){
+  const el=document.getElementById('save-status');
+  el.textContent=msg; el.className=cls;
+}
+
+// ── Init ──────────────────────────────────────────────────
+loadSettings();
+loadRadarStatus();
+loadLog();
+</script>
+</body>
+</html>

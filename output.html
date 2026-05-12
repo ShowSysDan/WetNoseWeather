@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=1920">
+  <title>NEXRAD Output · Orlando</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <style>
+    :root {
+      --bg:#07080d; --surface:#0d1117; --border:#1a2535; --border2:#243145;
+      --accent:#00c9b8; --accent-dim:#006e67;
+      --text:#6888a4; --text-mid:#94afc8; --text-bright:#cde0f0;
+      --font-mono:'Share Tech Mono',monospace; --font-ui:'Barlow Condensed',sans-serif;
+      --sev-extreme:#ff2d55; --sev-severe:#ff9f0a;
+      --sev-moderate:#ffd60a; --sev-minor:#30d158; --sev-unknown:#3a4f66;
+    }
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    html,body{width:1920px;height:1080px;overflow:hidden;background:var(--bg);
+      color:var(--text-bright);font-family:var(--font-mono);cursor:none}
+
+    /* ── Offline overlay ── */
+    #offline-overlay{position:fixed;inset:0;z-index:9999;background:#000;
+      display:none;align-items:flex-end;justify-content:flex-end;padding:14px 18px}
+    #offline-overlay.visible{display:flex}
+    #offline-dot{width:6px;height:6px;border-radius:50%;background:#1c1c1c}
+
+    /* ── NWS tile error toast ── */
+    #nws-toast{position:fixed;bottom:14px;left:18px;z-index:500;
+      font-family:var(--font-ui);font-size:10px;font-weight:700;
+      letter-spacing:.12em;text-transform:uppercase;color:var(--sev-moderate);
+      display:none;align-items:center;gap:6px}
+    #nws-toast.visible{display:flex}
+    #nws-toast-dot{width:6px;height:6px;border-radius:50%;background:var(--sev-moderate)}
+
+    /* ── Banner ── */
+    #alert-banner{height:42px;display:flex;align-items:center;padding:0 18px;gap:12px;
+      background:var(--surface);border-bottom:1px solid var(--border)}
+    #banner-dot{width:8px;height:8px;border-radius:50%;background:var(--border2);
+      flex-shrink:0;transition:background .4s}
+    #banner-dot.pulse{animation:dot-pulse 2.5s ease-in-out infinite}
+    @keyframes dot-pulse{0%,100%{opacity:1}50%{opacity:.55}}
+    #banner-text{flex:1;font-family:var(--font-ui);font-size:15px;font-weight:600;
+      letter-spacing:.1em;text-transform:uppercase;color:var(--text-mid);transition:color .3s}
+    #banner-meta{display:flex;align-items:center;gap:20px;
+      font-family:var(--font-ui);font-size:11px;letter-spacing:.1em;
+      color:var(--text);text-transform:uppercase}
+    #clock{color:var(--accent);font-family:var(--font-mono);font-size:14px;letter-spacing:.08em}
+
+    /* ── Main layout ── */
+    #main{display:flex;height:calc(1080px - 42px)}
+    #map{flex:1}
+
+    /* ── Sidebar ── */
+    #alert-sidebar{width:380px;flex-shrink:0;background:var(--surface);
+      border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+    #alert-sidebar.hidden{display:none}
+    #sidebar-head{padding:11px 16px;font-family:var(--font-ui);font-size:10px;
+      font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--text);
+      border-bottom:1px solid var(--border);display:flex;align-items:center;
+      justify-content:space-between;flex-shrink:0}
+    #alert-count-badge{background:var(--accent);color:var(--bg);font-size:11px;
+      font-weight:700;padding:2px 8px;border-radius:10px;min-width:22px;text-align:center}
+    #alert-list{flex:1;overflow-y:hidden;padding:10px;display:flex;
+      flex-direction:column;gap:8px}
+    .no-alerts{display:flex;flex-direction:column;align-items:center;
+      justify-content:center;padding:50px 20px;gap:10px;color:var(--text);
+      font-family:var(--font-ui);font-size:13px;font-weight:600;
+      letter-spacing:.1em;text-transform:uppercase;text-align:center;opacity:.5}
+    .no-alerts-icon{font-size:30px;opacity:.4;margin-bottom:4px}
+    .alert-card{background:var(--bg);border:1px solid var(--border);
+      border-left-width:4px;border-radius:3px;padding:11px 14px}
+    .alert-card.extreme{border-left-color:var(--sev-extreme)}
+    .alert-card.severe{border-left-color:var(--sev-severe)}
+    .alert-card.moderate{border-left-color:var(--sev-moderate)}
+    .alert-card.minor{border-left-color:var(--sev-minor)}
+    .alert-card.unknown{border-left-color:var(--sev-unknown)}
+    .card-sev-badge{display:inline-block;font-family:var(--font-ui);font-size:10px;
+      font-weight:700;letter-spacing:.12em;text-transform:uppercase;
+      padding:2px 6px;border-radius:2px;margin-bottom:6px}
+    .badge-extreme{background:var(--sev-extreme);color:#fff}
+    .badge-severe{background:var(--sev-severe);color:#000}
+    .badge-moderate{background:var(--sev-moderate);color:#000}
+    .badge-minor{background:var(--sev-minor);color:#000}
+    .badge-unknown{background:var(--sev-unknown);color:var(--text-mid)}
+    .card-event{font-family:var(--font-ui);font-size:15px;font-weight:700;
+      letter-spacing:.04em;text-transform:uppercase;color:var(--text-bright);margin-bottom:5px}
+    .card-headline{font-size:11px;color:var(--text-mid);line-height:1.45;margin-bottom:5px}
+    .card-meta{font-size:10px;color:var(--accent-dim);letter-spacing:.04em}
+    #sidebar-footer{padding:8px 16px;font-size:10px;color:var(--text);
+      border-top:1px solid var(--border);flex-shrink:0;letter-spacing:.04em;
+      display:flex;justify-content:space-between}
+    #source-label{color:var(--accent-dim);font-family:var(--font-ui);font-size:10px;
+      font-weight:700;letter-spacing:.1em;text-transform:uppercase}
+
+    /* ── Leaflet overrides ── */
+    .leaflet-control-attribution{background:rgba(7,8,13,.7)!important;
+      color:#2a4060!important;font-size:9px!important}
+    .leaflet-control-attribution a{color:#2a4060!important}
+    .leaflet-control-zoom{display:none!important}
+
+    /* ── Alert polygon popup (no pointer events needed) ── */
+    .leaflet-popup-content-wrapper{background:var(--surface)!important;
+      color:var(--text-bright)!important;border:1px solid var(--border)!important;
+      border-radius:3px!important;font-family:var(--font-ui)!important;font-size:12px!important}
+    .leaflet-popup-tip{background:var(--surface)!important}
+  </style>
+</head>
+<body>
+
+<div id="offline-overlay"><div id="offline-dot"></div></div>
+<div id="nws-toast"><div id="nws-toast-dot"></div><span>NWS tiles unavailable</span></div>
+
+<div id="alert-banner">
+  <div id="banner-dot"></div>
+  <div id="banner-text">Initializing...</div>
+  <div id="banner-meta">
+    <span id="source-label">—</span>
+    <span id="timestamp-display" style="color:var(--accent);font-size:12px;letter-spacing:.04em">—</span>
+    <span id="clock">—</span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="map"></div>
+  <div id="alert-sidebar">
+    <div id="sidebar-head">
+      <span>Active Alerts</span>
+      <span id="alert-count-badge">—</span>
+    </div>
+    <div id="alert-list">
+      <div class="no-alerts"><div class="no-alerts-icon">📡</div><div>Loading...</div></div>
+    </div>
+    <div id="sidebar-footer">
+      <span id="alerts-updated">—</span>
+      <span id="reload-countdown">—</span>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+// ── Config ───────────────────────────────────────────────
+const HEALTH_INTERVAL    = 5  * 1000;
+const SETTINGS_INTERVAL  = 10 * 1000;
+const ALERT_INTERVAL     = 5  * 60 * 1000;
+const HARD_RELOAD_MS     = 15 * 60 * 1000;
+const NWS_WMS_BASE       = 'https://opengeo.ncep.noaa.gov/geoserver/conus/ows';
+const HURRICANE_WMS      = 'https://nowcoast.noaa.gov/arcgis/services/nowcoast/wwa_meteocean_tropicalcyclones_trackintensityfcsts_time/MapServer/WmsServer';
+const NM_TO_M            = 1852;
+
+const SEV_COLORS = {
+  extreme:  {fill:'#ff2d55',stroke:'#ff2d55',fillOp:.35,strokeOp:.85},
+  severe:   {fill:'#ff9f0a',stroke:'#ff9f0a',fillOp:.25,strokeOp:.80},
+  moderate: {fill:'#ffd60a',stroke:'#ffd60a',fillOp:.20,strokeOp:.75},
+  minor:    {fill:'#30d158',stroke:'#30d158',fillOp:.15,strokeOp:.65},
+  unknown:  {fill:'#3a4f66',stroke:'#3a4f66',fillOp:.15,strokeOp:.50},
+};
+const SEV_DISPLAY = {
+  extreme:'var(--sev-extreme)', severe:'var(--sev-severe)',
+  moderate:'var(--sev-moderate)', minor:'var(--sev-minor)', unknown:'var(--sev-unknown)',
+};
+
+// ── State ────────────────────────────────────────────────
+let map, settings;
+let radarFrames=[], frameMeta=[], currentFrame=-1;
+let animTimer=null, nwsLayer=null, nwsRedrawTimer=null, nwsScanInterval=120000;
+let polygonLayer=null, satelliteLayer=null, hurricaneLayer=null;
+let ringLayers=[], stationCoords={};
+let isOffline=false, settingsTs=0, reloadAt=Date.now()+HARD_RELOAD_MS;
+let prevFrameLayer=null;
+
+// ── Clock ────────────────────────────────────────────────
+function updateClock(){
+  document.getElementById('clock').textContent =
+    new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  const rem=Math.max(0,reloadAt-Date.now());
+  document.getElementById('reload-countdown').textContent =
+    `Reload in ${Math.floor(rem/60000)}:${String(Math.floor((rem%60000)/1000)).padStart(2,'0')}`;
+}
+setInterval(updateClock,1000); updateClock();
+
+// ── Map init ─────────────────────────────────────────────
+function initMap(s){
+  map=L.map('map',{
+    center:[s.map_lat||28.5383, s.map_lon||-81.3792],
+    zoom:s.map_zoom||8,
+    zoomControl:false, dragging:false, touchZoom:false,
+    scrollWheelZoom:false, doubleClickZoom:false,
+    boxZoom:false, keyboard:false, tap:false,
+  });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    attribution:'© OpenStreetMap © CARTO',subdomains:'abcd',maxZoom:19,
+  }).addTo(map);
+}
+
+// ── RainViewer ───────────────────────────────────────────
+async function loadRainViewer(s){
+  try{
+    const data=await fetch('/api/rainviewer',{cache:'no-store'}).then(r=>r.json());
+    if(!data.radar?.past) throw new Error('No radar data');
+    const frames=[...(data.radar.past||[]).map(f=>({time:f.time,type:'past'})),
+                  ...(data.radar.nowcast||[]).map(f=>({time:f.time,type:'nowcast'}))];
+    if(!frames.length) throw new Error('No frames');
+
+    // Stage new layers before removing old (smooth transition)
+    const newLayers=[], color=s.rv_color??6;
+    frames.forEach(f=>{
+      const l=L.tileLayer(
+        `https://tilecache.rainviewer.com/v2/radar/${f.time}/256/{z}/{x}/{y}/${color}/1_1.png`,
+        {opacity:0,zIndex:200}
+      ).addTo(map);
+      newLayers.push(l);
+    });
+
+    // Remove old layers after new ones are staged
+    radarFrames.forEach(l=>map.removeLayer(l));
+    radarFrames=newLayers; frameMeta=frames;
+
+    const slider=document.getElementById('frame-slider');
+    if(slider){slider.max=frames.length-1; slider.value=frames.length-1;}
+
+    // Load satellite IR if enabled (free RainViewer tier; lightning requires paid API)
+    if(s.show_satellite_ir && data.satellite?.infrared?.length){
+      loadSatelliteIR(data.satellite.infrared, s);
+    }
+
+    showFrame(frames.length-1);
+    if(!animTimer) startAnimation(s.anim_speed||500);
+
+  }catch(e){ console.error('RainViewer load error:',e); }
+}
+
+function showFrame(idx){
+  if(idx<0||idx>=radarFrames.length) return;
+  // Pre-stage next frame (set to near-zero opacity so tiles load)
+  const next=(idx+1)%radarFrames.length;
+  if(radarFrames[next]&&next!==currentFrame) radarFrames[next].setOpacity(0.001);
+
+  if(currentFrame>=0&&radarFrames[currentFrame]) radarFrames[currentFrame].setOpacity(0);
+  currentFrame=idx;
+  radarFrames[currentFrame].setOpacity(settings?.opacity/100??0.7);
+
+  const m=frameMeta[idx];
+  if(m){
+    const d=new Date(m.time*1000);
+    const tag=m.type==='nowcast'?'▶ FCST':'◀ PAST';
+    document.getElementById('timestamp-display')&&
+      (document.getElementById('timestamp-display').textContent=
+        `${tag}  ${d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`);
+  }
+}
+
+function startAnimation(speed){
+  if(animTimer) clearInterval(animTimer);
+  animTimer=setInterval(()=>showFrame((currentFrame+1)%radarFrames.length),speed);
+}
+
+async function checkForNewFrames(s){
+  if(isOffline||s.radar_source!=='rainviewer') return;
+  try{
+    const data=await fetch('/api/rainviewer',{cache:'no-store'}).then(r=>r.json());
+    if(!data.radar?.past) return;
+    const frames=[...(data.radar.past||[]),...(data.radar.nowcast||[])];
+    if(frames[frames.length-1]?.time!==frameMeta[frameMeta.length-1]?.time){
+      if(animTimer){clearInterval(animTimer);animTimer=null;}
+      await loadRainViewer(s);
+    }
+  }catch(e){}
+}
+
+// ── Satellite IR (RainViewer free tier) ───────────────────
+function loadSatelliteIR(irFrames, s){
+  if(satelliteLayer){map.removeLayer(satelliteLayer);satelliteLayer=null;}
+  if(!irFrames?.length) return;
+  // RainViewer satellite uses hash-based paths from the API response
+  const latest=irFrames[irFrames.length-1];
+  const host='https://tilecache.rainviewer.com';
+  satelliteLayer=L.tileLayer(
+    `${host}${latest.path}/256/{z}/{x}/{y}/0/0_0.png`,
+    {opacity:(s.opacity/100)*0.6, zIndex:150, attribution:'RainViewer Satellite IR'}
+  ).addTo(map);
+}
+
+// ── NWS WMS ───────────────────────────────────────────────
+function loadNWSLayer(s){
+  if(nwsLayer){map.removeLayer(nwsLayer); nwsLayer=null;}
+  nwsLayer=L.tileLayer.wms(NWS_WMS_BASE,{
+    layers:s.nws_product||'conus_bref_qcd',
+    format:'image/png',transparent:true,
+    opacity:s.opacity/100||0.7,zIndex:200,attribution:'NOAA/NWS',
+  }).addTo(map);
+
+  // NWS tile health indicator
+  let nwsErrors=0;
+  nwsLayer.on('tileload',()=>{
+    nwsErrors=0;
+    document.getElementById('nws-toast').classList.remove('visible');
+  });
+  nwsLayer.on('tileerror',()=>{
+    nwsErrors++;
+    if(nwsErrors>=3) document.getElementById('nws-toast').classList.add('visible');
+  });
+
+  startNWSPolling(s);
+}
+
+function setNWSRedrawTimer(ms){
+  if(nwsRedrawTimer) clearInterval(nwsRedrawTimer);
+  nwsScanInterval=ms;
+  nwsRedrawTimer=setInterval(()=>{if(!isOffline&&nwsLayer) nwsLayer.redraw();},ms);
+}
+
+async function startNWSPolling(s){
+  await refreshVCPStatus();
+  setInterval(async()=>{if(nwsLayer) await refreshVCPStatus();},5*60*1000);
+}
+
+async function refreshVCPStatus(){
+  try{
+    const st=await fetch('/api/radar_status',{cache:'no-store'}).then(r=>r.json());
+    const newMs=(st.scan_interval_seconds||300)*1000;
+    updateVCPDisplay(st);
+    if(newMs!==nwsScanInterval||!nwsRedrawTimer) setNWSRedrawTimer(newMs);
+  }catch(e){if(!nwsRedrawTimer) setNWSRedrawTimer(120000);}
+}
+
+function updateVCPDisplay(st){
+  const station=st.station||'KMLB';
+  const vcp=st.vcp?`VCP ${st.vcp}`:'VCP —';
+  const age=st.age_minutes!=null?` · ${Math.round(st.age_minutes)}m ago`:'';
+  const fb=st.fallback?' ⚠ FALLBACK':'';
+  document.getElementById('source-label').textContent=
+    `${station} · ${vcp} · ${st.mode||'—'} · ${st.label||''}${age}${fb}`;
+}
+
+// ── Alert polygons ────────────────────────────────────────
+async function loadAlertPolygons(){
+  if(polygonLayer){map.removeLayer(polygonLayer); polygonLayer=null;}
+  if(!settings?.show_alert_polygons) return;
+  try{
+    const data=await fetch('/api/alert_polygons',{cache:'no-store'}).then(r=>r.json());
+    if(!data.features?.length) return;
+    polygonLayer=L.geoJSON(data,{
+      style:f=>{
+        const sev=(f.properties?.severity||'unknown').toLowerCase();
+        const c=SEV_COLORS[sev]||SEV_COLORS.unknown;
+        return{fillColor:c.fill,fillOpacity:c.fillOp,
+               color:c.stroke,opacity:c.strokeOp,weight:2};
+      },
+      onEachFeature:()=>{}  // no popups on output page
+    }).addTo(map);
+  }catch(e){}
+}
+
+// ── Range rings ───────────────────────────────────────────
+async function loadRangeRings(){
+  ringLayers.forEach(l=>map.removeLayer(l)); ringLayers=[];
+  if(!settings?.show_range_rings) return;
+  try{
+    const coords=await fetch('/api/station_coords').then(r=>r.json());
+    const sid=settings.range_ring_station||'KMLB';
+    const sc=coords[sid];
+    if(!sc) return;
+    [50,100,200].forEach((nm,i)=>{
+      const l=L.circle([sc.lat,sc.lon],{
+        radius:nm*NM_TO_M,
+        color:'#4a6080',weight:1,dashArray:'4 6',
+        fillOpacity:0,opacity:0.5,zIndex:250,
+      }).addTo(map);
+      const label=L.marker([sc.lat+(nm*NM_TO_M/111319.5),sc.lon],{
+        icon:L.divIcon({
+          html:`<span style="font-family:var(--font-ui);font-size:9px;color:#4a6080;letter-spacing:.08em">${nm}nm</span>`,
+          className:'',iconAnchor:[0,0]
+        })
+      }).addTo(map);
+      ringLayers.push(l,label);
+    });
+  }catch(e){}
+}
+
+// ── Hurricane WMS ─────────────────────────────────────────
+function loadHurricaneLayer(){
+  if(hurricaneLayer){map.removeLayer(hurricaneLayer); hurricaneLayer=null;}
+  if(!settings?.show_hurricane) return;
+  // nowCOAST tropical cyclones WMS — shows nothing when no active storms
+  hurricaneLayer=L.tileLayer.wms(HURRICANE_WMS,{
+    layers:'0',format:'image/png',transparent:true,
+    opacity:0.85,zIndex:280,attribution:'NOAA NHC/nowCOAST',
+  }).addTo(map);
+}
+
+// ── Alerts ────────────────────────────────────────────────
+async function fetchAlerts(){
+  try{
+    const data=await fetch('/api/alerts',{cache:'no-store'}).then(r=>r.json());
+    const alerts=(data.features||[]).sort((a,b)=>
+      (({Extreme:4,Severe:3,Moderate:2,Minor:1,Unknown:0}[b.properties?.severity]??0)-
+       ({Extreme:4,Severe:3,Moderate:2,Minor:1,Unknown:0}[a.properties?.severity]??0)));
+    renderBanner(alerts); renderSidebar(alerts);
+    document.getElementById('alerts-updated').textContent=
+      `Alerts: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
+    // Refresh polygons when alerts refresh
+    await loadAlertPolygons();
+  }catch(e){ console.error('Alert error:',e); }
+}
+
+function renderBanner(alerts){
+  const dot=document.getElementById('banner-dot');
+  const text=document.getElementById('banner-text');
+  if(!alerts.length){
+    dot.style.background='var(--border2)'; dot.classList.remove('pulse');
+    text.style.color='var(--text-mid)'; text.textContent='No Active Alerts';
+    return;
+  }
+  const top=alerts[0].properties;
+  const sev=(top.severity||'Unknown').toLowerCase();
+  const col=SEV_DISPLAY[sev]||SEV_DISPLAY.unknown;
+  dot.style.background=col; dot.style.color=col; dot.classList.add('pulse');
+  text.style.color=col;
+  text.textContent=`${(top.severity||'UNKNOWN').toUpperCase()}: ${top.event||'Alert'} — ${alerts.length===1?'1 Alert':`${alerts.length} Alerts`} in Effect`;
+}
+
+function renderSidebar(alerts){
+  const list=document.getElementById('alert-list');
+  const badge=document.getElementById('alert-count-badge');
+  badge.textContent=alerts.length;
+  if(!alerts.length){
+    list.innerHTML='<div class="no-alerts"><div class="no-alerts-icon">✓</div><div>No active alerts</div></div>';
+    return;
+  }
+  list.innerHTML=alerts.slice(0,7).map(f=>{
+    const p=f.properties||{};
+    const sev=(p.severity||'Unknown').toLowerCase();
+    return`<div class="alert-card ${sev}">
+      <div class="card-sev-badge badge-${sev}">${p.severity||'Unknown'}</div>
+      <div class="card-event">${p.event||'Alert'}</div>
+      <div class="card-headline">${(p.headline||'').slice(0,110)}${(p.headline||'').length>110?'…':''}</div>
+      <div class="card-meta">Expires ${formatTime(p.expires||p.ends)}</div>
+    </div>`;
+  }).join('');
+}
+
+function formatTime(iso){
+  if(!iso) return '—';
+  return new Date(iso).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+}
+
+// ── Health / settings polling ─────────────────────────────
+async function checkHealth(){
+  try{
+    await fetch('/api/health',{cache:'no-store',signal:AbortSignal.timeout(4000)});
+    if(isOffline) location.reload();
+    isOffline=false;
+    document.getElementById('offline-overlay').classList.remove('visible');
+  }catch(e){
+    isOffline=true;
+    document.getElementById('offline-overlay').classList.add('visible');
+    if(animTimer){clearInterval(animTimer);animTimer=null;}
+  }
+}
+
+async function checkSettings(){
+  if(isOffline) return;
+  try{
+    const s=await fetch('/api/settings',{cache:'no-store'}).then(r=>r.json());
+    if(s.updated_at&&s.updated_at!==settingsTs) location.reload();
+  }catch(e){}
+}
+
+// ── Init ──────────────────────────────────────────────────
+async function init(){
+  try{
+    settings=await fetch('/api/settings',{cache:'no-store'}).then(r=>r.json());
+    settingsTs=settings.updated_at||0;
+  }catch(e){
+    isOffline=true;
+    document.getElementById('offline-overlay').classList.add('visible');
+    setInterval(checkHealth,HEALTH_INTERVAL);
+    return;
+  }
+
+  if(!settings.show_sidebar)
+    document.getElementById('alert-sidebar').classList.add('hidden');
+
+  initMap(settings);
+  await loadRangeRings();
+  loadHurricaneLayer();
+
+  if(settings.radar_source==='rainviewer'){
+    document.getElementById('source-label').textContent='RainViewer';
+    await loadRainViewer(settings);
+    setInterval(()=>checkForNewFrames(settings),60*1000);
+  }else{
+    loadNWSLayer(settings);
+  }
+
+  await fetchAlerts();
+  setInterval(fetchAlerts,ALERT_INTERVAL);
+  setInterval(checkHealth,HEALTH_INTERVAL);
+  setInterval(checkSettings,SETTINGS_INTERVAL);
+  setTimeout(()=>location.reload(),HARD_RELOAD_MS);
+}
+
+init();
+</script>
+</body>
+</html>
