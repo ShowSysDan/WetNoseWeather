@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <title>🐶 Wet Nose Weather</title>
+  <link rel="icon" href="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'&gt;&lt;text y='52' font-size='52'&gt;🐶&lt;/text&gt;&lt;/svg&gt;">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root{
+      --bg:#07080d;--surface:#0d1117;--border:#1a2535;
+      --accent:#00c9b8;--accent-dim:#006e67;
+      --text:#6888a4;--text-mid:#94afc8;--text-bright:#cde0f0;
+      --font-mono:'Share Tech Mono',monospace;--font-ui:'Barlow Condensed',sans-serif;
+    }
+    *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+    body{min-height:100vh;background:var(--bg);color:var(--text-bright);
+      font-family:var(--font-mono);display:flex;align-items:center;
+      justify-content:center;padding:24px}
+    main{max-width:520px;width:100%;text-align:center}
+    .logo{display:flex;align-items:center;justify-content:center;
+      gap:14px;margin-bottom:18px;color:var(--accent)}
+    .logo svg{width:56px;height:56px}
+    .logo .emoji{display:none;font-size:46px;line-height:1}
+    .no-svg .logo svg{display:none}
+    .no-svg .logo .emoji{display:inline}
+    h1{font-family:var(--font-ui);font-size:34px;font-weight:700;
+      letter-spacing:.18em;text-transform:uppercase;color:var(--text-bright)}
+    p{margin:14px 0 28px;color:var(--text-mid);font-family:var(--font-ui);
+      font-size:14px;letter-spacing:.08em;line-height:1.6}
+    .links{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+    a.btn{font-family:var(--font-ui);font-size:13px;font-weight:700;
+      letter-spacing:.12em;text-transform:uppercase;text-decoration:none;
+      padding:12px 22px;border:1px solid var(--border);border-radius:3px;
+      color:var(--text-mid);transition:border-color .2s,color .2s,background .2s}
+    a.btn:hover{border-color:var(--accent);color:var(--accent)}
+    a.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--bg)}
+    a.btn.primary:hover{background:#00e0cd}
+    .meta{margin-top:32px;font-size:11px;color:var(--text);
+      font-family:var(--font-ui);letter-spacing:.15em;text-transform:uppercase}
+    .status-dot{display:inline-block;width:7px;height:7px;border-radius:50%;
+      background:var(--accent-dim);margin-right:6px;vertical-align:middle}
+    .status-dot.live{background:var(--accent);box-shadow:0 0 6px var(--accent)}
+  </style>
+</head>
+<body>
+<main>
+  <div class="logo">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <path fill="currentColor"
+            d="M32 8c-13 0-22 8.5-22 19 0 7.8 5.4 13.7 11.6 17.6C26 47.3 28 50.4 28 53.5c0 3 1.8 4.5 4 4.5s4-1.5 4-4.5c0-3.1 2-6.2 6.4-8.9C48.6 40.7 54 34.8 54 27c0-10.5-9-19-22-19z"/>
+      <ellipse cx="24" cy="26" rx="3.2" ry="6" fill="#07080d"/>
+      <ellipse cx="40" cy="26" rx="3.2" ry="6" fill="#07080d"/>
+    </svg>
+    <span class="emoji" aria-hidden="true">🐶</span>
+  </div>
+  <h1>Wet Nose Weather</h1>
+  <p>Flask-based NEXRAD radar display with NWS alerts, station failover, and syslog event reporting.</p>
+  <div class="links">
+    <a class="btn primary" href="/output" target="_blank">View Output ↗</a>
+    <a class="btn" href="/settings">Settings</a>
+    <a class="btn" href="/api/health" target="_blank">Health</a>
+  </div>
+  <div class="meta"><span id="status-dot" class="status-dot"></span><span id="status-text">Checking server…</span></div>
+</main>
+<script>
+  fetch('/api/health').then(r => r.json()).then(j => {
+    document.getElementById('status-dot').classList.add('live');
+    document.getElementById('status-text').textContent = 'Server online';
+  }).catch(() => {
+    document.getElementById('status-text').textContent = 'Server unreachable';
+  });
+</script>
+</body>
+</html>
