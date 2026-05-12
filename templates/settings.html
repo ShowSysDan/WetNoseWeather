@@ -268,6 +268,88 @@
     </div>
   </div>
 
+  <!-- ── Pin (point of interest) ── -->
+  <div class="section">
+    <div class="section-header">Pin · Point of Interest</div>
+    <div class="field-row">
+      <div class="field-label">
+        <strong>Enable Pin</strong>
+        <span>Drops a marker on the output display. Optional radius circle.</span>
+      </div>
+      <div class="field-control">
+        <label class="toggle"><input type="checkbox" id="pin_enabled" onchange="togglePinFields()">
+          <span class="toggle-slider"></span>
+          <span class="toggle-desc" id="td-pin">Disabled</span>
+        </label>
+      </div>
+    </div>
+
+    <div id="pin-fields">
+      <div class="field-row">
+        <div class="field-label">
+          <strong>Address Search</strong>
+          <span>Looks up a US address via OpenStreetMap Nominatim. You can also click the mini-map above or type lat/lon below.</span>
+        </div>
+        <div class="field-control">
+          <div style="display:flex;gap:8px;align-items:stretch">
+            <input class="styled-input" type="text" id="pin_address" placeholder="123 Main St, Orlando FL"
+                   style="flex:1" onkeydown="if(event.key==='Enter'){event.preventDefault();geocodePin();}">
+            <button type="button" class="small-btn" onclick="geocodePin()" id="geocode-btn"
+                    style="white-space:nowrap">🔍 Find</button>
+          </div>
+          <div id="geocode-result" style="margin-top:6px;font-size:11px;color:var(--text);
+               font-family:var(--font-ui);letter-spacing:.06em;min-height:14px"></div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label"><strong>Coordinates</strong>
+          <span>Or click the map above to place the pin.</span></div>
+        <div class="field-control">
+          <div class="pos-fields">
+            <div class="pos-field">
+              <label>Latitude</label>
+              <input class="pos-input" id="pin_lat" type="number" step="0.000001" oninput="syncPinFromFields()">
+            </div>
+            <div class="pos-field">
+              <label>Longitude</label>
+              <input class="pos-input" id="pin_lon" type="number" step="0.000001" oninput="syncPinFromFields()">
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label"><strong>Label</strong>
+          <span>Optional. Shown next to the pin on the output display.</span></div>
+        <div class="field-control">
+          <input class="styled-input" type="text" id="pin_label" maxlength="80" placeholder="Home">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label"><strong>Radius Circle</strong>
+          <span>Draws a dashed circle around the pin.</span></div>
+        <div class="field-control">
+          <label class="toggle"><input type="checkbox" id="pin_radius_enabled" onchange="updatePinPreview()">
+            <span class="toggle-slider"></span>
+            <span class="toggle-desc" id="td-pin-radius">Disabled</span>
+          </label>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label"><strong>Radius (miles)</strong>
+          <span>0.1 – 500.</span></div>
+        <div class="field-control">
+          <input class="styled-input" type="number" id="pin_radius_miles"
+                 min="0.1" max="500" step="0.1" style="width:120px"
+                 oninput="updatePinPreview()">
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Station status ── -->
   <div class="section">
     <div class="section-header">Radar Station Status</div>
@@ -536,7 +618,8 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
 // ── Position mini-map ─────────────────────────────────────
-let posMap, posMarker;
+let posMap, posMarker, pinMarker, pinRadius;
+const MI_TO_M = 1609.344;
 
 function initPosMap(lat, lon, zoom){
   posMap=L.map('pos-map',{zoomControl:true,scrollWheelZoom:true});
@@ -544,7 +627,7 @@ function initPosMap(lat, lon, zoom){
     attribution:'© OSM © CARTO',subdomains:'abcd',maxZoom:19,
   }).addTo(posMap);
   posMap.setView([lat,lon],zoom);
-  posMarker=L.marker([lat,lon],{draggable:true}).addTo(posMap);
+  posMarker=L.marker([lat,lon],{draggable:true,title:'Map center'}).addTo(posMap);
   posMarker.on('dragend',()=>{
     const ll=posMarker.getLatLng();
     setFields(ll.lat,ll.lng,posMap.getZoom());
@@ -556,6 +639,93 @@ function initPosMap(lat, lon, zoom){
   posMap.on('zoomend',()=>{
     document.getElementById('map_zoom_input').value=posMap.getZoom();
   });
+}
+
+// ── Pin marker + radius preview ──────────────────────────
+function pinIcon(){
+  return L.divIcon({
+    html:'<div style="width:14px;height:14px;border-radius:50%;background:#00c9b8;'
+        +'border:2px solid #07080d;box-shadow:0 0 0 2px #00c9b8"></div>',
+    className:'',iconSize:[14,14],iconAnchor:[7,7]
+  });
+}
+
+function ensurePinMarker(lat,lon){
+  if(!posMap) return;
+  if(!pinMarker){
+    pinMarker=L.marker([lat,lon],{draggable:true,icon:pinIcon(),title:'Pin'}).addTo(posMap);
+    pinMarker.on('dragend',()=>{
+      const ll=pinMarker.getLatLng();
+      document.getElementById('pin_lat').value=ll.lat.toFixed(6);
+      document.getElementById('pin_lon').value=ll.lng.toFixed(6);
+      updatePinPreview();
+    });
+  } else {
+    pinMarker.setLatLng([lat,lon]);
+  }
+}
+
+function clearPinMarker(){
+  if(pinMarker){ posMap.removeLayer(pinMarker); pinMarker=null; }
+  if(pinRadius){ posMap.removeLayer(pinRadius); pinRadius=null; }
+}
+
+function updatePinPreview(){
+  const enabled=document.getElementById('pin_enabled').checked;
+  const radCb=document.getElementById('pin_radius_enabled');
+  document.getElementById('td-pin-radius').textContent=radCb.checked?'Enabled':'Disabled';
+  if(!enabled){ clearPinMarker(); return; }
+  const lat=parseFloat(document.getElementById('pin_lat').value);
+  const lon=parseFloat(document.getElementById('pin_lon').value);
+  if(!Number.isFinite(lat)||!Number.isFinite(lon)){ clearPinMarker(); return; }
+  ensurePinMarker(lat,lon);
+  if(pinRadius){ posMap.removeLayer(pinRadius); pinRadius=null; }
+  if(radCb.checked){
+    const miles=parseFloat(document.getElementById('pin_radius_miles').value)||10;
+    pinRadius=L.circle([lat,lon],{
+      radius:miles*MI_TO_M, color:'#00c9b8', weight:1.5, dashArray:'4 6',
+      fillColor:'#00c9b8', fillOpacity:0.06, opacity:0.7
+    }).addTo(posMap);
+  }
+}
+
+function syncPinFromFields(){ updatePinPreview(); }
+
+function togglePinFields(){
+  const en=document.getElementById('pin_enabled').checked;
+  const wrap=document.getElementById('pin-fields');
+  wrap.style.opacity=en?'1':'0.35';
+  wrap.style.pointerEvents=en?'auto':'none';
+  document.getElementById('td-pin').textContent=en?'Enabled':'Disabled';
+  updatePinPreview();
+}
+
+async function geocodePin(){
+  const q=document.getElementById('pin_address').value.trim();
+  const out=document.getElementById('geocode-result');
+  const btn=document.getElementById('geocode-btn');
+  if(!q){ out.textContent='Enter an address.'; out.style.color='var(--orange)'; return; }
+  btn.disabled=true; out.textContent='Searching…'; out.style.color='var(--text)';
+  try{
+    const resp=await fetch('/api/geocode?q='+encodeURIComponent(q),{cache:'no-store'});
+    const data=await resp.json();
+    if(!resp.ok){ throw new Error(data.error||('HTTP '+resp.status)); }
+    document.getElementById('pin_lat').value=data.lat.toFixed(6);
+    document.getElementById('pin_lon').value=data.lon.toFixed(6);
+    out.style.color='var(--green)';
+    out.textContent='✓ '+(data.display_name||(data.lat+', '+data.lon));
+    if(!document.getElementById('pin_enabled').checked){
+      document.getElementById('pin_enabled').checked=true;
+      togglePinFields();
+    }
+    posMap.setView([data.lat,data.lon],Math.max(posMap.getZoom(),11));
+    updatePinPreview();
+  }catch(e){
+    out.style.color='var(--red)';
+    out.textContent='✗ '+e.message;
+  }finally{
+    btn.disabled=false;
+  }
 }
 
 function setFields(lat,lon,zoom){
@@ -645,7 +815,7 @@ async function loadSettings(){
     const s=await fetch('/api/settings',{cache:'no-store'}).then(r=>r.json());
     applyToForm(s); updatePreview(s);
     initPosMap(s.map_lat||28.5383, s.map_lon||-81.3792, s.map_zoom||8);
-    setTimeout(()=>posMap.invalidateSize(),200);
+    setTimeout(()=>{ posMap.invalidateSize(); updatePinPreview(); },200);
   }catch(e){ setStatus('⚠ Could not load settings','error'); }
 }
 
@@ -692,6 +862,15 @@ function applyToForm(s){
   document.getElementById('map_lat').value=(s.map_lat||28.5383).toFixed(4);
   document.getElementById('map_lon').value=(s.map_lon||-81.3792).toFixed(4);
   document.getElementById('map_zoom_input').value=s.map_zoom||8;
+
+  // Pin
+  document.getElementById('pin_enabled').checked=!!s.pin_enabled;
+  document.getElementById('pin_lat').value=(s.pin_lat??28.5383).toFixed(6);
+  document.getElementById('pin_lon').value=(s.pin_lon??-81.3792).toFixed(6);
+  document.getElementById('pin_label').value=s.pin_label||'';
+  document.getElementById('pin_radius_enabled').checked=!!s.pin_radius_enabled;
+  document.getElementById('pin_radius_miles').value=s.pin_radius_miles??10;
+  togglePinFields();
 }
 
 function updatePreview(s){
@@ -786,6 +965,12 @@ async function saveSettings(){
     syslog_host:     document.getElementById('syslog_host').value.trim(),
     syslog_port:     parseInt(document.getElementById('syslog_port').value)||514,
     syslog_facility: document.getElementById('syslog_facility').value,
+    pin_enabled:         document.getElementById('pin_enabled').checked,
+    pin_lat:             parseFloat(document.getElementById('pin_lat').value),
+    pin_lon:             parseFloat(document.getElementById('pin_lon').value),
+    pin_label:           document.getElementById('pin_label').value.trim(),
+    pin_radius_enabled:  document.getElementById('pin_radius_enabled').checked,
+    pin_radius_miles:    parseFloat(document.getElementById('pin_radius_miles').value)||10,
   };
   try{
     const resp=await fetch('/api/settings',{method:'POST',

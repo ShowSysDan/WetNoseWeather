@@ -84,6 +84,13 @@ DEFAULT_SETTINGS = {
     'syslog_host':      '',
     'syslog_port':      514,
     'syslog_facility':  'local0',
+    # Pin (point of interest with optional radius)
+    'pin_enabled':         False,
+    'pin_lat':             28.5383,
+    'pin_lon':            -81.3792,
+    'pin_label':           '',
+    'pin_radius_enabled':  False,
+    'pin_radius_miles':    10,
     'updated_at': 0,
 }
 
@@ -155,14 +162,19 @@ def validate_settings(data):
             if v not in allowed: raise ValueError(f'{k} must be one of: {", ".join(sorted(allowed))}')
             out[k]=v
     fi('map_lat',-90,90); fi('map_lon',-180,180)
+    fi('pin_lat',-90,90); fi('pin_lon',-180,180)
+    fi('pin_radius_miles', 0.1, 500)
     ii('map_zoom',2,18); ii('opacity',0,100); ii('anim_speed',50,5000)
     ii('rv_color',0,8); ii('syslog_port',1,65535)
     en('radar_source',ALLOWED_RADAR_SOURCES); en('nws_product',ALLOWED_NWS_PRODUCTS)
     en('range_ring_station',ALLOWED_RING_STATIONS); en('webhook_min_severity',ALLOWED_SEVERITIES)
     en('syslog_facility',ALLOWED_SYSLOG_FACILITIES)
     for k in ('show_sidebar','show_alert_polygons','show_range_rings',
-              'show_satellite_ir','show_hurricane','syslog_enabled'):
+              'show_satellite_ir','show_hurricane','syslog_enabled',
+              'pin_enabled','pin_radius_enabled'):
         if k in data: out[k]=bool(data[k])
+    if 'pin_label' in data:
+        out['pin_label'] = str(data['pin_label']).strip()[:80]
     if 'webhook_url' in data:
         url=str(data['webhook_url']).strip()[:2048]
         if url and not _is_safe_url(url):
@@ -430,6 +442,68 @@ def get_rainviewer():
         return jsonify(resp.json())
     except req_lib.RequestException as e:
         return jsonify({'error': str(e)}), 500
+
+# ── API: geocode ──────────────────────────────────────────
+# Nominatim (OpenStreetMap) free geocoder. Their usage policy requires a
+# real User-Agent (we send one) and asks for no more than 1 req/sec from a
+# single source. We cache results in-process for a day and pace outbound
+# calls with a per-process lock to stay polite even if the kiosk admin
+# spams the search button.
+_GEOCODE_TTL_S      = 24 * 3600
+_GEOCODE_MIN_GAP_S  = 1.1
+_geocode_cache      = {}            # q.lower() -> (timestamp, result)
+_geocode_lock       = threading.Lock()
+_geocode_last_call  = [0.0]
+
+@app.route('/api/geocode')
+def api_geocode():
+    q = (request.args.get('q', '') or '').strip()
+    if not q:
+        return jsonify({'error': 'Missing query'}), 400
+    if len(q) > 200:
+        return jsonify({'error': 'Query too long'}), 400
+    key = q.lower()
+    now = time.time()
+
+    cached = _geocode_cache.get(key)
+    if cached and now - cached[0] < _GEOCODE_TTL_S:
+        return jsonify(cached[1])
+
+    with _geocode_lock:
+        gap = time.time() - _geocode_last_call[0]
+        if gap < _GEOCODE_MIN_GAP_S:
+            time.sleep(_GEOCODE_MIN_GAP_S - gap)
+        _geocode_last_call[0] = time.time()
+
+        try:
+            resp = req_lib.get(
+                'https://nominatim.openstreetmap.org/search',
+                params={'q': q, 'format': 'json', 'limit': 1,
+                        'countrycodes': 'us', 'addressdetails': 0},
+                headers=HEADERS, timeout=8,
+            )
+            resp.raise_for_status()
+            results = resp.json()
+        except req_lib.RequestException as e:
+            return jsonify({'error': f'Geocoder unavailable: {e}'}), 502
+
+    if not results:
+        return jsonify({'error': 'No results'}), 404
+    r = results[0]
+    try:
+        out = {
+            'lat':          round(float(r['lat']), 6),
+            'lon':          round(float(r['lon']), 6),
+            'display_name': str(r.get('display_name', ''))[:300],
+        }
+    except (KeyError, TypeError, ValueError):
+        return jsonify({'error': 'Bad response from geocoder'}), 502
+    _geocode_cache[key] = (now, out)
+    # Bound the cache so a long-running process can't grow unbounded.
+    if len(_geocode_cache) > 256:
+        for old_key in list(_geocode_cache)[:64]:
+            _geocode_cache.pop(old_key, None)
+    return jsonify(out)
 
 # ── API: hurricane ────────────────────────────────────────
 @app.route('/api/hurricane')

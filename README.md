@@ -55,6 +55,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 - Syslog configuration (host, port, UDP facility).
 - Live radar-station status panel (VCP, operability, data age for KMLB and KTBW).
 - Alert log viewer (last 200 events, color-coded, clearable).
+- **Pin / point of interest** — drop a labelled marker (e.g. "Home") on the output map. Place it by typing a US address (geocoded server-side via Nominatim with a 24-hour cache and 1 req/sec rate limit), dragging the pin on the mini-map, or typing lat/lon directly. Optional dashed radius circle around the pin in miles.
 
 ### Notifications & Logging
 - **Webhook** — HTTP POST on new alerts meeting the minimum severity threshold; JSON payload compatible with Slack/Teams/generic endpoints. Alert IDs are persisted to `logs/notified.json` (48-hour window) so a server restart doesn't re-fire alerts and gunicorn workers can't double-fire.
@@ -79,7 +80,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 - Python 3.10+
 - Debian 12 / Ubuntu 22.04+ (or any systemd Linux)
-- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`
+- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`, and `nominatim.openstreetmap.org` (only used when an admin clicks the pin "Find" address-search button)
 
 ---
 
@@ -205,6 +206,12 @@ All settings are managed through `/settings` and stored in `settings.json`. The 
 | `syslog_host` | string | `""` | Syslog server hostname or IP |
 | `syslog_port` | int | `514` | Syslog UDP port (1–65535) |
 | `syslog_facility` | string | `"local0"` | `local0`–`local7`, `user`, `daemon` |
+| `pin_enabled` | bool | `false` | Draw a point-of-interest pin on the output display |
+| `pin_lat` | float | `28.5383` | Pin latitude |
+| `pin_lon` | float | `-81.3792` | Pin longitude |
+| `pin_label` | string | `""` | Optional label rendered next to the pin (≤80 chars) |
+| `pin_radius_enabled` | bool | `false` | Draw a dashed radius circle around the pin |
+| `pin_radius_miles` | float | `10` | Radius in miles (0.1–500) |
 
 ### NWS WMS products
 
@@ -248,6 +255,7 @@ All settings are managed through `/settings` and stored in `settings.json`. The 
 | `GET`  | `/api/hurricane` | NHC Atlantic / East Pacific active storms |
 | `GET`  | `/api/radar_status` | VCP, operability, age, failover state for KMLB+KTBW |
 | `GET`  | `/api/station_coords` | Lat/lon of KMLB and KTBW |
+| `GET`  | `/api/geocode?q=...` | Resolve a US address to lat/lon via Nominatim (cached 24h, rate-limited) |
 | `GET`  | `/api/logs?n=200` | Last N alert-log entries (max 500) |
 | `POST` | `/api/logs/clear` | Truncate the alert log |
 
