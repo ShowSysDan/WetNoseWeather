@@ -188,6 +188,8 @@ let radarFrames=[], frameMeta=[], currentFrame=-1;
 let animTimer=null, nwsLayer=null, nwsRedrawTimer=null, nwsScanInterval=120000;
 let polygonLayer=null, satelliteLayer=null, hurricaneLayer=null;
 let ringLayers=[], stationCoords={};
+let pinLayer=null, pinRadiusLayer=null, pinLabelLayer=null;
+const MI_TO_M = 1609.344;
 let isOffline=false, settingsTs=0, reloadAt=Date.now()+HARD_RELOAD_MS;
 let prevFrameLayer=null;
 
@@ -400,6 +402,48 @@ async function loadRangeRings(){
   }catch(e){}
 }
 
+// ── Pin + radius ──────────────────────────────────────────
+function clearPin(){
+  [pinLayer,pinRadiusLayer,pinLabelLayer].forEach(l=>{if(l) map.removeLayer(l);});
+  pinLayer=pinRadiusLayer=pinLabelLayer=null;
+}
+function loadPin(){
+  clearPin();
+  if(!settings?.pin_enabled) return;
+  const lat=Number(settings.pin_lat), lon=Number(settings.pin_lon);
+  if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+  if(settings.pin_radius_enabled){
+    const miles=Number(settings.pin_radius_miles)||10;
+    pinRadiusLayer=L.circle([lat,lon],{
+      radius:miles*MI_TO_M,
+      color:'#00c9b8',weight:1.5,dashArray:'4 6',
+      fillColor:'#00c9b8',fillOpacity:0.06,opacity:0.7
+    }).addTo(map);
+  }
+  pinLayer=L.marker([lat,lon],{
+    icon:L.divIcon({
+      html:'<div style="width:14px;height:14px;border-radius:50%;background:#00c9b8;'
+          +'border:2px solid #07080d;box-shadow:0 0 0 2px #00c9b8,0 0 8px rgba(0,201,184,.8)"></div>',
+      className:'',iconSize:[14,14],iconAnchor:[7,7]
+    })
+  }).addTo(map);
+  const label=(settings.pin_label||'').trim();
+  if(label){
+    pinLabelLayer=L.marker([lat,lon],{
+      icon:L.divIcon({
+        html:'<span style="font-family:var(--font-ui);font-size:11px;font-weight:700;'
+            +'letter-spacing:.12em;text-transform:uppercase;color:#cde0f0;'
+            +'background:rgba(7,8,13,.85);padding:2px 6px;border:1px solid #00c9b8;'
+            +'border-radius:2px;white-space:nowrap">'
+            +label.replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c]))
+            +'</span>',
+        className:'',iconAnchor:[-10,8]
+      })
+    }).addTo(map);
+  }
+}
+
 // ── Hurricane WMS ─────────────────────────────────────────
 function loadHurricaneLayer(){
   if(hurricaneLayer){map.removeLayer(hurricaneLayer); hurricaneLayer=null;}
@@ -506,6 +550,7 @@ async function init(){
 
   initMap(settings);
   await loadRangeRings();
+  loadPin();
   loadHurricaneLayer();
 
   if(settings.radar_source==='rainviewer'){

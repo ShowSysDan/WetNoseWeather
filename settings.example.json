@@ -19,5 +19,11 @@
   "syslog_host":         "",
   "syslog_port":         514,
   "syslog_facility":     "local0",
+  "pin_enabled":         false,
+  "pin_lat":             28.5383,
+  "pin_lon":            -81.3792,
+  "pin_label":           "",
+  "pin_radius_enabled":  false,
+  "pin_radius_miles":    10,
   "updated_at":          0
 }

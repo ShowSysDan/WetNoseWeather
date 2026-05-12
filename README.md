@@ -55,6 +55,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 - Syslog configuration (host, port, UDP facility).
 - Live radar-station status panel (VCP, operability, data age for KMLB and KTBW).
 - Alert log viewer (last 200 events, color-coded, clearable).
+- **Pin / point of interest** — drop a labelled marker (e.g. "Home") on the output map. Place it by typing a US address (geocoded server-side via Nominatim with a 24-hour cache and 1 req/sec rate limit), dragging the pin on the mini-map, or typing lat/lon directly. Optional dashed radius circle around the pin in miles.
 
 ### Notifications & Logging
 - **Webhook** — HTTP POST on new alerts meeting the minimum severity threshold; JSON payload compatible with Slack/Teams/generic endpoints. Alert IDs are persisted to `logs/notified.json` (48-hour window) so a server restart doesn't re-fire alerts and gunicorn workers can't double-fire.
@@ -79,8 +80,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 - Python 3.10+
 - Debian 12 / Ubuntu 22.04+ (or any systemd Linux)
-- `curl` (used by the watchdog service)
-- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`
+- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`, and `nominatim.openstreetmap.org` (only used when an admin clicks the pin "Find" address-search button)
 
 ---
 
@@ -90,7 +90,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git
 
 git clone https://github.com/showsysdan/wetnoseweather.git
 cd wetnoseweather
@@ -111,7 +111,7 @@ Open <http://localhost:5000/> for the landing page, <http://localhost:5000/setti
 **1. System packages**
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git
 ```
 
 **2. App user and directory**
@@ -139,24 +139,19 @@ sudo -u wetnose cp /opt/wetnose/settings.example.json /opt/wetnose/settings.json
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-**6. Install + start the systemd units**
+**6. Install + start the systemd unit**
 ```bash
 sudo cp /opt/wetnose/wetnose.service /etc/systemd/system/
-sudo cp /opt/wetnose/wetnose-watchdog.service /etc/systemd/system/
-sudo cp /opt/wetnose/wetnose-watchdog.timer   /etc/systemd/system/
 
 # Set WETNOSE_SECRET_KEY in wetnose.service to the value from step 5
 sudo systemctl edit --full wetnose.service
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now wetnose.service
-sudo systemctl enable --now wetnose-watchdog.timer
-
 sudo systemctl status wetnose.service
-sudo systemctl list-timers wetnose-watchdog.timer
 ```
 
-The watchdog timer hits `/api/health` every 5 minutes; if the probe fails it restarts `wetnose.service`. This catches hangs and deadlocks that `Restart=on-failure` would otherwise miss because the process is technically still alive. **No cron required.**
+`Restart=on-failure` in the unit handles crashes. The output display also polls `/api/health` from the browser side every 5 seconds and fades to black if the server stops responding, so there's no separate host-side watchdog.
 
 **7. Reverse proxy (optional but recommended)**
 ```nginx
@@ -211,6 +206,12 @@ All settings are managed through `/settings` and stored in `settings.json`. The 
 | `syslog_host` | string | `""` | Syslog server hostname or IP |
 | `syslog_port` | int | `514` | Syslog UDP port (1–65535) |
 | `syslog_facility` | string | `"local0"` | `local0`–`local7`, `user`, `daemon` |
+| `pin_enabled` | bool | `false` | Draw a point-of-interest pin on the output display |
+| `pin_lat` | float | `28.5383` | Pin latitude |
+| `pin_lon` | float | `-81.3792` | Pin longitude |
+| `pin_label` | string | `""` | Optional label rendered next to the pin (≤80 chars) |
+| `pin_radius_enabled` | bool | `false` | Draw a dashed radius circle around the pin |
+| `pin_radius_miles` | float | `10` | Radius in miles (0.1–500) |
 
 ### NWS WMS products
 
@@ -254,6 +255,7 @@ All settings are managed through `/settings` and stored in `settings.json`. The 
 | `GET`  | `/api/hurricane` | NHC Atlantic / East Pacific active storms |
 | `GET`  | `/api/radar_status` | VCP, operability, age, failover state for KMLB+KTBW |
 | `GET`  | `/api/station_coords` | Lat/lon of KMLB and KTBW |
+| `GET`  | `/api/geocode?q=...` | Resolve a US address to lat/lon via Nominatim (cached 24h, rate-limited) |
 | `GET`  | `/api/logs?n=200` | Last N alert-log entries (max 500) |
 | `POST` | `/api/logs/clear` | Truncate the alert log |
 
@@ -300,9 +302,7 @@ wetnoseweather/
 ├── app.py                       # Flask app, API routes, alert logic
 ├── requirements.txt             # Pinned Python deps
 ├── settings.example.json        # Template — copy to settings.json
-├── wetnose.service              # Main systemd unit
-├── wetnose-watchdog.service     # One-shot health-check unit
-├── wetnose-watchdog.timer       # 5-minute watchdog cadence
+├── wetnose.service              # Systemd unit
 ├── .gitignore
 ├── README.md
 ├── templates/
