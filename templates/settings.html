@@ -492,6 +492,26 @@
         </div>
       </div>
     </div>
+
+    <div class="field-row">
+      <div class="field-label"><strong>Storm Cell Tracks</strong>
+        <span>NEXRAD storm-attribute markers + ~30-min projected tracks. GeoJSON sourced from Iowa Environmental Mesonet (IEM).</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="show_storm_cells">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-storm-cells">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Storm Cells Source URL</strong>
+        <span>Override if the IEM default 404s or you want a different feed. Must be a GeoJSON FeatureCollection over http/https.</span></div>
+      <div class="field-control">
+        <input class="styled-input" type="url" id="storm_cells_url"
+               placeholder="https://mesonet.agron.iastate.edu/geojson/nexrad_attr.geojson">
+      </div>
+    </div>
   </div>
 
   <!-- ── Display ── -->
@@ -839,13 +859,14 @@ function applyToForm(s){
   // Text inputs
   document.getElementById('webhook_url').value=s.webhook_url||'';
   document.getElementById('syslog_host').value=s.syslog_host||'';
+  document.getElementById('storm_cells_url').value=s.storm_cells_url||'';
   document.getElementById('syslog_port').value=s.syslog_port||514;
 
   // Toggles
   const toggles=[
     ['show_sidebar','td-sidebar'],['show_alert_polygons','td-polygons'],
     ['show_range_rings','td-rings'],['show_satellite_ir','td-satellite'],
-    ['show_hurricane','td-hurricane'],
+    ['show_hurricane','td-hurricane'],['show_storm_cells','td-storm-cells'],
   ];
   toggles.forEach(([id,desc])=>{
     document.getElementById(id).checked=s[id]!==false;
@@ -882,6 +903,7 @@ function updatePreview(s){
   if(s.show_range_rings)    ov.push('Rings');
   if(s.show_satellite_ir)      ov.push('Lightning');
   if(s.show_hurricane)      ov.push('Hurricane');
+  if(s.show_storm_cells)    ov.push('Cell tracks');
   document.getElementById('prev-overlays').textContent=ov.length?ov.join(', '):'None';
 }
 
@@ -967,6 +989,8 @@ async function saveSettings(){
     pin_label:           document.getElementById('pin_label').value.trim(),
     pin_radius_enabled:  document.getElementById('pin_radius_enabled').checked,
     pin_radius_miles:    parseFloat(document.getElementById('pin_radius_miles').value)||10,
+    show_storm_cells:    document.getElementById('show_storm_cells').checked,
+    storm_cells_url:     document.getElementById('storm_cells_url').value.trim(),
   };
   try{
     const resp=await fetch('/api/settings',{method:'POST',

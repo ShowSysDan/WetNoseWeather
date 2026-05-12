@@ -118,6 +118,9 @@ DEFAULT_SETTINGS = {
     'pin_label':           '',
     'pin_radius_enabled':  False,
     'pin_radius_miles':    10,
+    # Storm cell tracks (IEM NEXRAD storm-attributes feed)
+    'show_storm_cells':    False,
+    'storm_cells_url':     'https://mesonet.agron.iastate.edu/geojson/nexrad_attr.geojson',
     'updated_at': 0,
 }
 
@@ -198,8 +201,13 @@ def validate_settings(data):
     en('syslog_facility',ALLOWED_SYSLOG_FACILITIES)
     for k in ('show_sidebar','show_alert_polygons','show_range_rings',
               'show_satellite_ir','show_hurricane','syslog_enabled',
-              'pin_enabled','pin_radius_enabled'):
+              'pin_enabled','pin_radius_enabled','show_storm_cells'):
         if k in data: out[k]=bool(data[k])
+    if 'storm_cells_url' in data:
+        url = str(data['storm_cells_url']).strip()[:2048]
+        if url and not _is_safe_url(url):
+            raise ValueError('storm_cells_url must be http(s) and not target a private/loopback address')
+        out['storm_cells_url'] = url
     if 'pin_label' in data:
         out['pin_label'] = str(data['pin_label']).strip()[:80]
     if 'webhook_url' in data:
@@ -531,6 +539,58 @@ def api_geocode():
         for old_key in list(_geocode_cache)[:64]:
             _geocode_cache.pop(old_key, None)
     return jsonify(out)
+
+# ── API: storm cells ──────────────────────────────────────
+# Proxy + cache for the IEM (Iowa Environmental Mesonet) NEXRAD
+# storm-attributes GeoJSON. URL is settable in /settings so it can be
+# pointed at a different feed without redeploying. We cache for 30s
+# per URL to be a polite client and to absorb the kiosk's polling.
+_STORM_CACHE_TTL_S  = 30
+_storm_cache        = {}    # url -> (timestamp, payload_dict, status_int)
+_storm_cache_lock   = threading.Lock()
+
+@app.route('/api/storm_cells')
+def api_storm_cells():
+    s   = load_settings()
+    url = (s.get('storm_cells_url') or '').strip()
+    if not url:
+        return jsonify({'type': 'FeatureCollection', 'features': [],
+                        'error': 'storm_cells_url is not set'}), 200
+    if not _is_safe_url(url):
+        return jsonify({'error': 'Configured storm_cells_url is not safe'}), 400
+
+    now = time.time()
+    with _storm_cache_lock:
+        hit = _storm_cache.get(url)
+        if hit and now - hit[0] < _STORM_CACHE_TTL_S:
+            return jsonify(hit[1]), hit[2]
+
+    try:
+        resp = req_lib.get(url, headers=HEADERS, timeout=8)
+        resp.raise_for_status()
+        data = resp.json()
+        if not isinstance(data, dict) or data.get('type') != 'FeatureCollection':
+            return jsonify({'type': 'FeatureCollection', 'features': [],
+                            'error': 'Upstream did not return a FeatureCollection'}), 502
+        with _storm_cache_lock:
+            _storm_cache[url] = (now, data, 200)
+            # Bound the cache: only ever a handful of URLs.
+            if len(_storm_cache) > 8:
+                _storm_cache.pop(next(iter(_storm_cache)), None)
+        return jsonify(data), 200
+    except req_lib.RequestException as e:
+        app_logger.warning(f'storm_cells fetch failed: {e}')
+        # Serve stale data if we have any so the kiosk doesn't go blank
+        # because IEM hiccuped for a single poll.
+        with _storm_cache_lock:
+            hit = _storm_cache.get(url)
+        if hit:
+            return jsonify({**hit[1], 'stale': True}), 200
+        return jsonify({'type': 'FeatureCollection', 'features': [],
+                        'error': str(e)}), 502
+    except ValueError as e:
+        return jsonify({'type': 'FeatureCollection', 'features': [],
+                        'error': f'Upstream returned non-JSON: {e}'}), 502
 
 # ── API: hurricane ────────────────────────────────────────
 @app.route('/api/hurricane')

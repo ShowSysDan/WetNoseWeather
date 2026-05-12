@@ -187,7 +187,10 @@ let animTimer=null, nwsRedrawTimer=null;
 let polygonLayer=null, satelliteLayer=null, hurricaneLayer=null;
 let ringLayers=[], stationCoords={};
 let pinLayer=null, pinRadiusLayer=null, pinLabelLayer=null;
+let stormCellLayer=null, stormCellTimer=null;
 const MI_TO_M = 1609.344;
+const STORM_PROJECT_MIN = 30;        // minutes ahead to draw the track
+const STORM_REFRESH_MS  = 60 * 1000; // poll cadence
 let isOffline=false, settingsTs=0, reloadAt=Date.now()+HARD_RELOAD_MS;
 let prevFrameLayer=null;
 
@@ -489,6 +492,98 @@ function loadPin(){
   }
 }
 
+// ── Storm cell tracks (IEM NEXRAD storm-attributes) ──────
+// Reads property names case-insensitively because IEM has shipped both
+// uppercase (DRCT, SPEED, MAX_DBZ, STORM_ID) and lowercase variants.
+function getProp(props, ...names){
+  if(!props) return undefined;
+  for(const n of names){
+    if(props[n] !== undefined) return props[n];
+    const u = n.toUpperCase(), l = n.toLowerCase();
+    if(props[u] !== undefined) return props[u];
+    if(props[l] !== undefined) return props[l];
+  }
+  return undefined;
+}
+
+function projectLatLon(lat, lon, bearingDeg, distanceKm){
+  // Flat-earth projection — fine for ~30 min storm motion at NEXRAD scales.
+  const br = bearingDeg * Math.PI / 180;
+  const dlat = (distanceKm * Math.cos(br)) / 111.32;
+  const dlon = (distanceKm * Math.sin(br)) / (111.32 * Math.cos(lat * Math.PI / 180));
+  return [lat + dlat, lon + dlon];
+}
+
+function loadStormCells(){
+  if(stormCellLayer){ map.removeLayer(stormCellLayer); stormCellLayer = null; }
+  if(stormCellTimer){ clearInterval(stormCellTimer); stormCellTimer = null; }
+  if(!settings?.show_storm_cells) return;
+
+  const fetchAndRender = async () => {
+    try{
+      const data = await fetch('/api/storm_cells', {cache:'no-store'}).then(r => r.json());
+      if(stormCellLayer){ map.removeLayer(stormCellLayer); stormCellLayer = null; }
+      const features = (data && data.features) || [];
+      if(!features.length) return;
+
+      const group = L.layerGroup();
+      features.forEach(f => {
+        const coords = f.geometry && f.geometry.coordinates;
+        if(!coords || coords.length < 2) return;
+        const [lon, lat] = coords;
+        if(!Number.isFinite(lat) || !Number.isFinite(lon)) return;
+
+        const id    = getProp(f.properties, 'storm_id', 'STORM_ID', 'id') || '?';
+        const dbz   = getProp(f.properties, 'max_dbz',  'MAX_DBZ', 'dbz');
+        const drct  = Number(getProp(f.properties, 'drct',  'DRCT'));
+        const speed = Number(getProp(f.properties, 'sknt', 'speed', 'SPEED', 'SKNT'));
+
+        // Projected track line (only when motion is known and meaningful).
+        if(Number.isFinite(drct) && Number.isFinite(speed) && speed > 0){
+          const distKm = speed * 1.852 * (STORM_PROJECT_MIN / 60);
+          const end    = projectLatLon(lat, lon, drct, distKm);
+          L.polyline([[lat, lon], end], {
+            color:'#ff9f0a', weight:1.8, opacity:0.85, dashArray:'6 4'
+          }).addTo(group);
+          // Small head marker
+          L.circleMarker(end, {
+            radius:3, color:'#ff9f0a', weight:1.5, fillColor:'#ff9f0a',
+            fillOpacity:0.9
+          }).addTo(group);
+        }
+
+        // Cell marker
+        L.circleMarker([lat, lon], {
+          radius:5, color:'#ff453a', weight:2, fillColor:'#ff453a',
+          fillOpacity:0.85
+        }).addTo(group);
+
+        // Light label: ID + dBZ
+        const labelText = (dbz !== undefined && dbz !== null && Number.isFinite(Number(dbz)))
+          ? `${id} · ${Math.round(Number(dbz))}dBZ`
+          : `${id}`;
+        const safe = String(labelText).replace(/[<>&"']/g, c =>
+          ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+        L.marker([lat, lon], {
+          icon: L.divIcon({
+            html: '<span style="font-family:var(--font-ui);font-size:10px;font-weight:700;'
+                + 'letter-spacing:.08em;color:#fff;background:rgba(7,8,13,.78);'
+                + 'padding:1px 5px;border:1px solid #ff453a;border-radius:2px;'
+                + 'white-space:nowrap">' + safe + '</span>',
+            className:'', iconAnchor:[-8, 6]
+          }),
+          interactive:false
+        }).addTo(group);
+      });
+      group.addTo(map);
+      stormCellLayer = group;
+    }catch(e){ /* swallow — kiosk should keep going */ }
+  };
+
+  fetchAndRender();
+  stormCellTimer = setInterval(fetchAndRender, STORM_REFRESH_MS);
+}
+
 // ── Hurricane WMS ─────────────────────────────────────────
 function loadHurricaneLayer(){
   if(hurricaneLayer){map.removeLayer(hurricaneLayer); hurricaneLayer=null;}
@@ -597,6 +692,7 @@ async function init(){
   await loadRangeRings();
   loadPin();
   loadHurricaneLayer();
+  loadStormCells();
 
   if(settings.radar_source==='rainviewer'){
     document.getElementById('source-label').textContent='RainViewer';
