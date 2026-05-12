@@ -70,7 +70,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 - `SysLogHandler` instances are properly closed and removed before re-attaching, preventing UDP socket leaks across config changes.
 - Secret key via `WETNOSE_SECRET_KEY` env var (auto-generated if absent; set explicitly in production).
 - Debug mode off unless `WETNOSE_DEBUG=1`.
-- Server binds to `127.0.0.1` only — put nginx/Caddy in front for LAN access.
+- Defaults to binding `127.0.0.1`. Set `WETNOSE_HOST=0.0.0.0` in `wetnose.env` to serve directly on the LAN.
 - Systemd unit enables `NoNewPrivileges`, `PrivateTmp`, `ProtectSystem=strict`, `ProtectHome`, `ProtectKernel*`, `RestrictSUIDSGID`, `LockPersonality`, `RestrictNamespaces`.
 - `settings.json` and `logs/` are in `.gitignore` — webhook URLs and syslog targets are never committed.
 
@@ -101,12 +101,15 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 cp settings.example.json settings.json   # optional — /settings can also create it
+cp wetnose.env.example   wetnose.env     # optional — defaults to 127.0.0.1:5100
 python app.py
 ```
 
-Open <http://localhost:5000/> for the landing page, <http://localhost:5000/settings> to configure, and <http://localhost:5000/output> for the kiosk display.
+Open <http://localhost:5100/> for the landing page, <http://localhost:5100/settings> to configure, and <http://localhost:5100/output> for the kiosk display. To change the bind host or port, edit `WETNOSE_HOST` / `WETNOSE_PORT` in `wetnose.env`.
 
 ### Production (Debian + systemd + gunicorn)
+
+Runs out of `~/wetnoseweather` under your regular user account (no dedicated service user). The shipped `wetnose.service` has `User=leko` and `WorkingDirectory=/home/leko/wetnoseweather` — if your username isn't `leko`, edit those two lines (and the `EnvironmentFile=`, `ExecStart=`, `BindPaths=`, and log paths) before installing the unit, or do it once via `sudo systemctl edit --full wetnose`.
 
 **1. System packages**
 ```bash
@@ -114,67 +117,57 @@ sudo apt update
 sudo apt install -y python3 python3-venv python3-pip git
 ```
 
-**2. App user and directory**
+**2. Clone into your home directory**
 ```bash
-sudo useradd -r -s /usr/sbin/nologin -d /opt/wetnose wetnose
-sudo mkdir -p /opt/wetnose
-sudo git clone https://github.com/showsysdan/wetnoseweather.git /opt/wetnose
-sudo chown -R wetnose:wetnose /opt/wetnose
+git clone https://github.com/showsysdan/wetnoseweather.git ~/wetnoseweather
+cd ~/wetnoseweather
 ```
 
 **3. Python venv + dependencies**
 ```bash
-sudo -u wetnose python3 -m venv /opt/wetnose/venv
-sudo -u wetnose /opt/wetnose/venv/bin/pip install --upgrade pip
-sudo -u wetnose /opt/wetnose/venv/bin/pip install -r /opt/wetnose/requirements.txt
+python3 -m venv ~/wetnoseweather/venv
+~/wetnoseweather/venv/bin/pip install --upgrade pip
+~/wetnoseweather/venv/bin/pip install -r ~/wetnoseweather/requirements.txt
 ```
 
 **4. Settings file**
 ```bash
-sudo -u wetnose cp /opt/wetnose/settings.example.json /opt/wetnose/settings.json
+cp ~/wetnoseweather/settings.example.json ~/wetnoseweather/settings.json
 ```
 
-**5. Generate a secret key**
+**5. Bootstrap config (host / port / secret key)**
 ```bash
+# Generate a secret key
 python3 -c "import secrets; print(secrets.token_hex(32))"
+
+# Copy the env template and edit it
+cp ~/wetnoseweather/wetnose.env.example ~/wetnoseweather/wetnose.env
+$EDITOR ~/wetnoseweather/wetnose.env
+# Set WETNOSE_SECRET_KEY=<value from above>
+# Adjust WETNOSE_HOST / WETNOSE_PORT here if you need something other
+# than 127.0.0.1:5100.
+
+chmod 600 ~/wetnoseweather/wetnose.env   # secret key — keep it private
 ```
 
 **6. Install + start the systemd unit**
 ```bash
-sudo cp /opt/wetnose/wetnose.service /etc/systemd/system/
-
-# Set WETNOSE_SECRET_KEY in wetnose.service to the value from step 5
-sudo systemctl edit --full wetnose.service
-
+sudo cp ~/wetnoseweather/wetnose.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now wetnose.service
 sudo systemctl status wetnose.service
 ```
 
-`Restart=on-failure` in the unit handles crashes. The output display also polls `/api/health` from the browser side every 5 seconds and fades to black if the server stops responding, so there's no separate host-side watchdog.
+The unit reads `~/wetnoseweather/wetnose.env` via `EnvironmentFile=` and uses `${WETNOSE_HOST}:${WETNOSE_PORT}` in its `--bind` argument, so port changes only require editing `wetnose.env` and `systemctl restart wetnose`. `Restart=on-failure` handles crashes; the output display polls `/api/health` from the browser every 5 s and fades to black if the server stops responding, so there's no separate host-side watchdog.
 
-**7. Reverse proxy (optional but recommended)**
-```nginx
-server {
-    listen 80;
-    server_name radar.yourdomain.local;
-
-    location / {
-        proxy_pass         http://127.0.0.1:5000;
-        proxy_set_header   Host $host;
-        proxy_set_header   X-Real-IP $remote_addr;
-        proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-        proxy_read_timeout 30s;
-    }
-}
-```
+`ProtectHome=tmpfs` plus a single `BindPaths=` line gives the service access only to its own directory under `/home`, not to every other home dir on the box.
 
 ### Updates
 
 ```bash
-cd /opt/wetnose
-sudo -u wetnose git pull
-sudo -u wetnose /opt/wetnose/venv/bin/pip install -r requirements.txt
+cd ~/wetnoseweather
+git pull
+~/wetnoseweather/venv/bin/pip install -r requirements.txt
 sudo systemctl restart wetnose.service
 ```
 
@@ -182,7 +175,25 @@ sudo systemctl restart wetnose.service
 
 ## Configuration Reference
 
-All settings are managed through `/settings` and stored in `settings.json`. The file is excluded from git — use `settings.example.json` as a template.
+There are **two** configuration files:
+
+1. **`wetnose.env`** — bootstrap config that has to be known before the app starts: bind host, bind port, debug flag, Flask secret key. Same KEY=VALUE syntax as systemd `EnvironmentFile`. Read by both `python app.py` and the gunicorn systemd unit, so there is exactly one place to set the port. Copy `wetnose.env.example` and edit:
+
+   ```bash
+   cp wetnose.env.example wetnose.env
+   $EDITOR wetnose.env
+   ```
+
+   | Variable | Default | Description |
+   |----------|---------|-------------|
+   | `WETNOSE_HOST` | `127.0.0.1` | Bind address. Set to `0.0.0.0` to listen on every interface for LAN access. |
+   | `WETNOSE_PORT` | `5100` | Bind port, 1–65535. |
+   | `WETNOSE_DEBUG` | `0` | Flask debug mode. Never enable in production. |
+   | `WETNOSE_SECRET_KEY` | *(auto)* | Flask session key. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. If blank, a fresh key is generated on every process start (sessions don't survive restarts). |
+
+   `wetnose.env` is gitignored. Existing environment variables (e.g. systemd `Environment=` directives, or your shell) take precedence over values in the file.
+
+2. **`settings.json`** — runtime settings managed through `/settings` and persisted to disk. Excluded from git — use `settings.example.json` as a template.
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
@@ -301,7 +312,8 @@ All outbound requests use a descriptive `User-Agent` (`WetNoseWeather/1.0`) as r
 wetnoseweather/
 ├── app.py                       # Flask app, API routes, alert logic
 ├── requirements.txt             # Pinned Python deps
-├── settings.example.json        # Template — copy to settings.json
+├── settings.example.json        # Runtime settings template — copy to settings.json
+├── wetnose.env.example          # Bootstrap config template (host/port/secret) — copy to wetnose.env
 ├── wetnose.service              # Systemd unit
 ├── .gitignore
 ├── README.md
