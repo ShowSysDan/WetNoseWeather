@@ -101,13 +101,15 @@ pip install --upgrade pip
 pip install -r requirements.txt
 
 cp settings.example.json settings.json   # optional — /settings can also create it
-cp wetnose.env.example   wetnose.env     # optional — defaults to 127.0.0.1:5000
+cp wetnose.env.example   wetnose.env     # optional — defaults to 127.0.0.1:5100
 python app.py
 ```
 
-Open <http://localhost:5000/> for the landing page, <http://localhost:5000/settings> to configure, and <http://localhost:5000/output> for the kiosk display. To change the bind host or port, edit `WETNOSE_HOST` / `WETNOSE_PORT` in `wetnose.env`.
+Open <http://localhost:5100/> for the landing page, <http://localhost:5100/settings> to configure, and <http://localhost:5100/output> for the kiosk display. To change the bind host or port, edit `WETNOSE_HOST` / `WETNOSE_PORT` in `wetnose.env`.
 
 ### Production (Debian + systemd + gunicorn)
+
+Runs out of `~/wetnoseweather` under your regular user account (no dedicated service user). The shipped `wetnose.service` has `User=leko` and `WorkingDirectory=/home/leko/wetnoseweather` — if your username isn't `leko`, edit those two lines (and the `EnvironmentFile=`, `ExecStart=`, `BindPaths=`, and log paths) before installing the unit, or do it once via `sudo systemctl edit --full wetnose`.
 
 **1. System packages**
 ```bash
@@ -115,24 +117,22 @@ sudo apt update
 sudo apt install -y python3 python3-venv python3-pip git
 ```
 
-**2. App user and directory**
+**2. Clone into your home directory**
 ```bash
-sudo useradd -r -s /usr/sbin/nologin -d /opt/wetnose wetnose
-sudo mkdir -p /opt/wetnose
-sudo git clone https://github.com/showsysdan/wetnoseweather.git /opt/wetnose
-sudo chown -R wetnose:wetnose /opt/wetnose
+git clone https://github.com/showsysdan/wetnoseweather.git ~/wetnoseweather
+cd ~/wetnoseweather
 ```
 
 **3. Python venv + dependencies**
 ```bash
-sudo -u wetnose python3 -m venv /opt/wetnose/venv
-sudo -u wetnose /opt/wetnose/venv/bin/pip install --upgrade pip
-sudo -u wetnose /opt/wetnose/venv/bin/pip install -r /opt/wetnose/requirements.txt
+python3 -m venv ~/wetnoseweather/venv
+~/wetnoseweather/venv/bin/pip install --upgrade pip
+~/wetnoseweather/venv/bin/pip install -r ~/wetnoseweather/requirements.txt
 ```
 
 **4. Settings file**
 ```bash
-sudo -u wetnose cp /opt/wetnose/settings.example.json /opt/wetnose/settings.json
+cp ~/wetnoseweather/settings.example.json ~/wetnoseweather/settings.json
 ```
 
 **5. Bootstrap config (host / port / secret key)**
@@ -141,24 +141,26 @@ sudo -u wetnose cp /opt/wetnose/settings.example.json /opt/wetnose/settings.json
 python3 -c "import secrets; print(secrets.token_hex(32))"
 
 # Copy the env template and edit it
-sudo -u wetnose cp /opt/wetnose/wetnose.env.example /opt/wetnose/wetnose.env
-sudo -u wetnose nano /opt/wetnose/wetnose.env
+cp ~/wetnoseweather/wetnose.env.example ~/wetnoseweather/wetnose.env
+$EDITOR ~/wetnoseweather/wetnose.env
 # Set WETNOSE_SECRET_KEY=<value from above>
 # Adjust WETNOSE_HOST / WETNOSE_PORT here if you need something other
-# than 127.0.0.1:5000.
+# than 127.0.0.1:5100.
 
-sudo chmod 640 /opt/wetnose/wetnose.env   # secret key — keep it readable only by the service user
+chmod 600 ~/wetnoseweather/wetnose.env   # secret key — keep it private
 ```
 
 **6. Install + start the systemd unit**
 ```bash
-sudo cp /opt/wetnose/wetnose.service /etc/systemd/system/
+sudo cp ~/wetnoseweather/wetnose.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now wetnose.service
 sudo systemctl status wetnose.service
 ```
 
-The unit reads `/opt/wetnose/wetnose.env` via `EnvironmentFile=` and uses `${WETNOSE_HOST}:${WETNOSE_PORT}` in its `--bind` argument, so port changes only require editing `wetnose.env` and `systemctl restart wetnose`. `Restart=on-failure` handles crashes; the output display polls `/api/health` from the browser every 5 s and fades to black if the server stops responding, so there's no separate host-side watchdog.
+The unit reads `~/wetnoseweather/wetnose.env` via `EnvironmentFile=` and uses `${WETNOSE_HOST}:${WETNOSE_PORT}` in its `--bind` argument, so port changes only require editing `wetnose.env` and `systemctl restart wetnose`. `Restart=on-failure` handles crashes; the output display polls `/api/health` from the browser every 5 s and fades to black if the server stops responding, so there's no separate host-side watchdog.
+
+`ProtectHome=tmpfs` plus a single `BindPaths=` line gives the service access only to its own directory under `/home`, not to every other home dir on the box.
 
 **7. Reverse proxy (optional but recommended)**
 ```nginx
@@ -167,7 +169,7 @@ server {
     server_name radar.yourdomain.local;
 
     location / {
-        proxy_pass         http://127.0.0.1:5000;
+        proxy_pass         http://127.0.0.1:5100;
         proxy_set_header   Host $host;
         proxy_set_header   X-Real-IP $remote_addr;
         proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
@@ -179,9 +181,9 @@ server {
 ### Updates
 
 ```bash
-cd /opt/wetnose
-sudo -u wetnose git pull
-sudo -u wetnose /opt/wetnose/venv/bin/pip install -r requirements.txt
+cd ~/wetnoseweather
+git pull
+~/wetnoseweather/venv/bin/pip install -r requirements.txt
 sudo systemctl restart wetnose.service
 ```
 
@@ -201,7 +203,7 @@ There are **two** configuration files:
    | Variable | Default | Description |
    |----------|---------|-------------|
    | `WETNOSE_HOST` | `127.0.0.1` | Bind address. Put nginx/Caddy in front for LAN access. |
-   | `WETNOSE_PORT` | `5000` | Bind port, 1–65535. |
+   | `WETNOSE_PORT` | `5100` | Bind port, 1–65535. |
    | `WETNOSE_DEBUG` | `0` | Flask debug mode. Never enable in production. |
    | `WETNOSE_SECRET_KEY` | *(auto)* | Flask session key. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. If blank, a fresh key is generated on every process start (sessions don't survive restarts). |
 

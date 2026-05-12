@@ -672,7 +672,7 @@ if __name__ == '__main__':
     debug = os.environ.get('WETNOSE_DEBUG', '').lower() in ('1', 'true', 'yes')
     host = os.environ.get('WETNOSE_HOST', '127.0.0.1')
     try:
-        port = int(os.environ.get('WETNOSE_PORT', '5000'))
+        port = int(os.environ.get('WETNOSE_PORT', '5100'))
         if not (1 <= port <= 65535):
             raise ValueError
     except ValueError:
