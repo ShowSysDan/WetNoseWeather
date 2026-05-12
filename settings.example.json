@@ -1,5 +1,4 @@
 {
-  "_comment": "Copy this file to settings.json and edit — or use the /settings page.",
   "radar_source":        "rainviewer",
   "rv_color":            6,
   "opacity":             70,

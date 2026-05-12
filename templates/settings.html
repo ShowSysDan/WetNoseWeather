@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width,initial-scale=1.0">
-  <title>NEXRAD Settings</title>
+  <title>🐶 Wet Nose Weather · Settings</title>
+  <link rel="icon" href="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'&gt;&lt;text y='52' font-size='52'&gt;🐶&lt;/text&gt;&lt;/svg&gt;">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@400;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
@@ -22,7 +23,12 @@
     #topnav{height:52px;background:var(--surface);border-bottom:1px solid var(--border);
       display:flex;align-items:center;padding:0 28px;gap:16px;position:sticky;top:0;z-index:100}
     #nav-title{font-family:var(--font-ui);font-size:14px;font-weight:700;
-      letter-spacing:.2em;text-transform:uppercase;color:var(--accent);flex:1}
+      letter-spacing:.2em;text-transform:uppercase;color:var(--accent);flex:1;
+      display:flex;align-items:center;gap:10px}
+    #nav-title svg{width:22px;height:22px;display:block;color:var(--accent)}
+    #nav-title .emoji{display:none;font-size:18px;line-height:1}
+    .no-svg #nav-title svg{display:none}
+    .no-svg #nav-title .emoji{display:inline}
     .nav-link{font-family:var(--font-ui);font-size:11px;font-weight:700;
       letter-spacing:.1em;text-transform:uppercase;color:var(--text-mid);
       text-decoration:none;padding:5px 12px;border:1px solid var(--border);
@@ -191,7 +197,16 @@
 <body>
 
 <div id="topnav">
-  <div id="nav-title">NEXRAD · Settings</div>
+  <div id="nav-title">
+    <svg viewBox="0 0 64 64" aria-hidden="true">
+      <path fill="currentColor"
+            d="M32 8c-13 0-22 8.5-22 19 0 7.8 5.4 13.7 11.6 17.6C26 47.3 28 50.4 28 53.5c0 3 1.8 4.5 4 4.5s4-1.5 4-4.5c0-3.1 2-6.2 6.4-8.9C48.6 40.7 54 34.8 54 27c0-10.5-9-19-22-19z"/>
+      <ellipse cx="24" cy="26" rx="3.2" ry="6" fill="#07080d"/>
+      <ellipse cx="40" cy="26" rx="3.2" ry="6" fill="#07080d"/>
+    </svg>
+    <span class="emoji" aria-hidden="true">🐶</span>
+    <span>Wet Nose Weather · Settings</span>
+  </div>
   <a class="nav-link" href="/">← Main View</a>
   <a class="nav-link primary" href="/output" target="_blank">View Output ↗</a>
 </div>

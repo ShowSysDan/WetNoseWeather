@@ -1,0 +1,16 @@
+# Wet Nose Weather — local-only artifacts
+settings.json
+logs/
+*.pyc
+__pycache__/
+.venv/
+venv/
+.env
+.DS_Store
+
+# Editor metadata
+.idea/
+.vscode/
+
+# Atomic-write temp files (in case a crash leaves them behind)
+.tmp-*
