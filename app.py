@@ -341,7 +341,7 @@ def fire_webhook(settings, props):
         return
     try:
         req_lib.post(url, json={
-            'text':     f"\U0001F436 {props.get('severity')} – {props.get('event')}",
+            'text':     f"{props.get('severity')} – {props.get('event')}",
             'event':    props.get('event'),
             'severity': props.get('severity'),
             'headline': props.get('headline'),

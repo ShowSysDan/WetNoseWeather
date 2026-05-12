@@ -1,4 +1,4 @@
-# 🐶 Wet Nose Weather
+# Wet Nose Weather
 
 A Flask-based NEXRAD weather radar display built for kiosk / AV-IT environments. Runs as a locked 1920×1080 output screen with a separate web settings interface for full remote control — no interaction needed on the display itself.
 
@@ -10,7 +10,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 ### Radar Sources
 - **RainViewer** (animated loop) — 12+ past frames plus nowcast, 8 selectable color palettes, adjustable animation speed, per-minute manifest poll (only reloads tiles when a new timestamp appears).
-- **NWS WMS** (live static) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Poll cadence is driven by the active VCP scan mode.
+- **NWS WMS** (animated) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Renders the last 8 frames at 5-minute intervals using the WMS TIME dimension, animated at the configured speed; the frame-set advances forward as new step boundaries are reached.
 
 ### Radar Station Monitoring
 - Dual-station failover: **KMLB Melbourne** (primary) → **KTBW Tampa Bay** (fallback).
@@ -276,7 +276,7 @@ When a new alert meets the minimum severity threshold, a POST is sent to `webhoo
 
 ```json
 {
-  "text": "🐶 Severe – Tornado Warning",
+  "text": "Severe – Tornado Warning",
   "event": "Tornado Warning",
   "severity": "Severe",
   "headline": "Tornado Warning issued for Orange County FL until 9:45 PM EDT",
