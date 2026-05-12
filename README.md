@@ -79,7 +79,6 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 - Python 3.10+
 - Debian 12 / Ubuntu 22.04+ (or any systemd Linux)
-- `curl` (used by the watchdog service)
 - Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`
 
 ---
@@ -90,7 +89,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git
 
 git clone https://github.com/showsysdan/wetnoseweather.git
 cd wetnoseweather
@@ -111,7 +110,7 @@ Open <http://localhost:5000/> for the landing page, <http://localhost:5000/setti
 **1. System packages**
 ```bash
 sudo apt update
-sudo apt install -y python3 python3-venv python3-pip git curl
+sudo apt install -y python3 python3-venv python3-pip git
 ```
 
 **2. App user and directory**
@@ -139,24 +138,19 @@ sudo -u wetnose cp /opt/wetnose/settings.example.json /opt/wetnose/settings.json
 python3 -c "import secrets; print(secrets.token_hex(32))"
 ```
 
-**6. Install + start the systemd units**
+**6. Install + start the systemd unit**
 ```bash
 sudo cp /opt/wetnose/wetnose.service /etc/systemd/system/
-sudo cp /opt/wetnose/wetnose-watchdog.service /etc/systemd/system/
-sudo cp /opt/wetnose/wetnose-watchdog.timer   /etc/systemd/system/
 
 # Set WETNOSE_SECRET_KEY in wetnose.service to the value from step 5
 sudo systemctl edit --full wetnose.service
 
 sudo systemctl daemon-reload
 sudo systemctl enable --now wetnose.service
-sudo systemctl enable --now wetnose-watchdog.timer
-
 sudo systemctl status wetnose.service
-sudo systemctl list-timers wetnose-watchdog.timer
 ```
 
-The watchdog timer hits `/api/health` every 5 minutes; if the probe fails it restarts `wetnose.service`. This catches hangs and deadlocks that `Restart=on-failure` would otherwise miss because the process is technically still alive. **No cron required.**
+`Restart=on-failure` in the unit handles crashes. The output display also polls `/api/health` from the browser side every 5 seconds and fades to black if the server stops responding, so there's no separate host-side watchdog.
 
 **7. Reverse proxy (optional but recommended)**
 ```nginx
@@ -300,9 +294,7 @@ wetnoseweather/
 ├── app.py                       # Flask app, API routes, alert logic
 ├── requirements.txt             # Pinned Python deps
 ├── settings.example.json        # Template — copy to settings.json
-├── wetnose.service              # Main systemd unit
-├── wetnose-watchdog.service     # One-shot health-check unit
-├── wetnose-watchdog.timer       # 5-minute watchdog cadence
+├── wetnose.service              # Systemd unit
 ├── .gitignore
 ├── README.md
 ├── templates/
