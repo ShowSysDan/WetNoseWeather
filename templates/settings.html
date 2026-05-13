@@ -451,6 +451,14 @@
               color:var(--text-bright);letter-spacing:.05em">—</span>
       </div>
     </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Hold Last Frame</strong>
+        <span>Extra pause (ms) on the most recent frame before the loop restarts. 0 = no pause. Applies to all sources.</span></div>
+      <div class="field-control">
+        <input class="styled-input" type="number" id="anim_hold_last_ms"
+               min="0" max="10000" step="100" style="width:140px">
+      </div>
+    </div>
   </div>
 
   <!-- ── NWS product ── -->
@@ -903,6 +911,7 @@ function applyToForm(s){
   document.getElementById('anim_speed').value=s.anim_speed??500;
   document.getElementById('wms_frame_count').value=s.wms_frame_count??8;
   document.getElementById('wms_frame_step_min').value=s.wms_frame_step_min??5;
+  document.getElementById('anim_hold_last_ms').value=s.anim_hold_last_ms??0;
   updateLoopLength();
   document.getElementById('nws_product').value=s.nws_product||'conus_bref_qcd';
   document.getElementById('range_ring_station').value=s.range_ring_station||'KMLB';
@@ -1029,6 +1038,7 @@ async function saveSettings(){
     anim_speed:   parseInt(document.getElementById('anim_speed').value),
     wms_frame_count:    parseInt(document.getElementById('wms_frame_count').value)||8,
     wms_frame_step_min: parseInt(document.getElementById('wms_frame_step_min').value)||5,
+    anim_hold_last_ms:  parseInt(document.getElementById('anim_hold_last_ms').value)||0,
     nws_product:  document.getElementById('nws_product').value,
     opacity:      parseInt(document.getElementById('opacity').value),
     map_lat:      parseFloat(document.getElementById('map_lat').value),

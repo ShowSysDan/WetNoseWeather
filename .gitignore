@@ -2,6 +2,7 @@
 settings.json
 wetnose.env
 logs/
+cache/
 *.pyc
 __pycache__/
 .venv/
