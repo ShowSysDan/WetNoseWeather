@@ -376,7 +376,11 @@
           </label>
           <label class="radio-btn" id="rb-nws">
             <input type="radio" name="radar_source" value="nws">
-            <span class="radio-label">NWS WMS (Live)</span>
+            <span class="radio-label">NWS CONUS WMS</span>
+          </label>
+          <label class="radio-btn" id="rb-iem">
+            <input type="radio" name="radar_source" value="iem">
+            <span class="radio-label">IEM Super-Res (N0Q)</span>
           </label>
         </div>
       </div>
@@ -809,8 +813,8 @@ function toggleSyslogFields(){
 
 // ── Source visibility ─────────────────────────────────────
 function updateSourceVis(src){
-  document.querySelectorAll('.rv-only').forEach(el=>el.classList.toggle('hidden',src!=='rainviewer'));
-  document.querySelectorAll('.nws-only').forEach(el=>el.classList.toggle('hidden',src==='rainviewer'));
+  document.querySelectorAll('.rv-only') .forEach(el=>el.classList.toggle('hidden',src!=='rainviewer'));
+  document.querySelectorAll('.nws-only').forEach(el=>el.classList.toggle('hidden',src!=='nws'));
 }
 
 document.querySelectorAll('input[name=radar_source]').forEach(r=>{
@@ -900,7 +904,10 @@ function applyToForm(s){
 }
 
 function updatePreview(s){
-  document.getElementById('prev-source').textContent=s.radar_source==='rainviewer'?'RainViewer':'NWS WMS';
+  document.getElementById('prev-source').textContent =
+    s.radar_source==='rainviewer' ? 'RainViewer' :
+    s.radar_source==='iem'        ? 'IEM Super-Res' :
+                                    'NWS WMS';
   document.getElementById('prev-loc').textContent=`${(s.map_lat||0).toFixed(3)}, ${(s.map_lon||0).toFixed(3)}`;
   document.getElementById('prev-zoom').textContent=s.map_zoom||8;
   document.getElementById('prev-opacity').textContent=(s.opacity??70)+'%';
