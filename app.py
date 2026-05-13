@@ -125,7 +125,7 @@ DEFAULT_SETTINGS = {
 }
 
 # ── Settings helpers ─────────────────────────────────────
-ALLOWED_RADAR_SOURCES    = {'rainviewer', 'nws'}
+ALLOWED_RADAR_SOURCES    = {'rainviewer', 'nws', 'iem'}
 ALLOWED_NWS_PRODUCTS     = {'conus_bref_qcd','conus_cref_qcd','conus_bvel_qcd',
                              'conus_n1p_qcd','conus_ntp_qcd'}
 ALLOWED_RING_STATIONS    = {'KMLB','KTBW'}

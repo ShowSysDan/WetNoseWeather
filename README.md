@@ -11,6 +11,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 ### Radar Sources
 - **RainViewer** (animated loop) — 12+ past frames plus nowcast, 8 selectable color palettes, adjustable animation speed, per-minute manifest poll (only reloads tiles when a new timestamp appears).
 - **NWS WMS** (animated) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Renders the last 8 frames at 5-minute intervals using the WMS TIME dimension, animated at the configured speed; the frame-set advances forward as new step boundaries are reached.
+- **IEM Super-Res (N0Q)** (animated) — Iowa Environmental Mesonet's CONUS-wide super-resolution base reflectivity mosaic, sampled at 0.5° azimuth × 250 m range (the same resolution RadarScope shows when you zoom in on base reflectivity). Same WMS TIME-frame animation as the NWS source. Defaults to layer `nexrad-n0q-wmst` at `https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi`.
 
 ### Radar Station Monitoring
 - Dual-station failover: **KMLB Melbourne** (primary) → **KTBW Tampa Bay** (fallback).
@@ -81,7 +82,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 - Python 3.10+
 - Debian 12 / Ubuntu 22.04+ (or any systemd Linux)
-- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`, `mesonet.agron.iastate.edu` (only used when the Storm Cell Tracks overlay is enabled), and `nominatim.openstreetmap.org` (only used when an admin clicks the pin "Find" button)
+- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`, `mesonet.agron.iastate.edu` (radar tiles when the IEM source is selected, GeoJSON when Storm Cell Tracks is enabled), and `nominatim.openstreetmap.org` (only used when an admin clicks the pin "Find" button)
 
 ---
 
@@ -198,7 +199,7 @@ There are **two** configuration files:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `radar_source` | string | `"rainviewer"` | `"rainviewer"` or `"nws"` |
+| `radar_source` | string | `"rainviewer"` | `"rainviewer"`, `"nws"`, or `"iem"` (IEM super-res N0Q) |
 | `rv_color` | int | `6` | RainViewer color scheme (0–8) |
 | `opacity` | int | `70` | Radar layer opacity (0–100) |
 | `anim_speed` | int | `500` | RainViewer frame interval, ms (50–5000) |
@@ -304,7 +305,7 @@ The `text` field works for Slack and Teams incoming webhooks. For other systems,
 | `opengeo.ncep.noaa.gov` | NWS CONUS radar WMS tiles | VCP-driven |
 | `nowcoast.noaa.gov` | Hurricane track / cone WMS | ~10 min |
 | `www.nhc.noaa.gov` | Active storm list | On page load |
-| `mesonet.agron.iastate.edu` | IEM NEXRAD storm-cell GeoJSON (optional) | 1 min poll, 30 s server cache |
+| `mesonet.agron.iastate.edu` | IEM super-res N0Q radar tiles (when `radar_source="iem"`), NEXRAD storm-cell GeoJSON (optional) | WMS-T frames every 5 min; storm cells: 1 min poll, 30 s server cache |
 | `nominatim.openstreetmap.org` | Address → lat/lon for pin (admin only, manual) | On demand |
 | `basemaps.cartocdn.com` | Dark basemap tiles | Static CDN |
 

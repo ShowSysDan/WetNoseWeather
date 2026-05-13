@@ -163,6 +163,8 @@ const SETTINGS_INTERVAL  = 10 * 1000;
 const ALERT_INTERVAL     = 5  * 60 * 1000;
 const HARD_RELOAD_MS     = 15 * 60 * 1000;
 const NWS_WMS_BASE       = 'https://opengeo.ncep.noaa.gov/geoserver/conus/ows';
+const IEM_WMS_BASE       = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi';
+const IEM_WMS_LAYER      = 'nexrad-n0q-wmst';
 const NWS_FRAME_COUNT    = 8;            // animated WMS frames
 const NWS_FRAME_STEP_MIN = 5;            // minutes between frames
 const HURRICANE_WMS      = 'https://nowcoast.noaa.gov/arcgis/services/nowcoast/wwa_meteocean_tropicalcyclones_trackintensityfcsts_time/MapServer/WmsServer';
@@ -329,8 +331,10 @@ function buildNWSFrames(){
   return frames;
 }
 
-function loadNWSLayer(s){
-  // Tear down any existing frames (RainViewer or stale NWS).
+// Generic WMS-T frame loader, shared by NWS (NCEP CONUS composite) and
+// IEM (super-res N0Q ~0.5° × 250m). spec = { base, layer, attribution }.
+function loadWMSFrames(s, spec){
+  // Tear down any existing frames (RainViewer or stale WMS).
   radarFrames.forEach(l => map.removeLayer(l));
   radarFrames = [];
   if(animTimer){ clearInterval(animTimer); animTimer = null; }
@@ -338,14 +342,14 @@ function loadNWSLayer(s){
   const frames = buildNWSFrames();
   let nwsErrors = 0;
   frames.forEach(f => {
-    const l = L.tileLayer.wms(NWS_WMS_BASE, {
-      layers:      s.nws_product || 'conus_bref_qcd',
+    const l = L.tileLayer.wms(spec.base, {
+      layers:      spec.layer,
       format:      'image/png',
       transparent: true,
       time:        f.iso,
       opacity:     0,
       zIndex:      200,
-      attribution: 'NOAA/NWS',
+      attribution: spec.attribution,
     }).addTo(map);
     l.on('tileload',  () => {
       nwsErrors = 0;
@@ -366,27 +370,46 @@ function loadNWSLayer(s){
   showFrame(frames.length - 1);
   startAnimation(s.anim_speed || 500);
 
-  startNWSPolling(s);
+  startWMSPolling(s, spec);
 }
 
-async function checkForNewNWSFrame(s){
-  if(isOffline || s.radar_source !== 'nws') return;
+function loadNWSLayer(s){
+  loadWMSFrames(s, {
+    base:        NWS_WMS_BASE,
+    layer:       s.nws_product || 'conus_bref_qcd',
+    attribution: 'NOAA/NWS',
+  });
+}
+
+function loadIEMLayer(s){
+  loadWMSFrames(s, {
+    base:        IEM_WMS_BASE,
+    layer:       IEM_WMS_LAYER,
+    attribution: 'Iowa Environmental Mesonet (NEXRAD N0Q super-res)',
+  });
+}
+
+async function checkForNewWMSFrame(s, spec){
+  if(isOffline) return;
+  if(s.radar_source !== 'nws' && s.radar_source !== 'iem') return;
   const stepMs    = NWS_FRAME_STEP_MIN * 60 * 1000;
   const latestSec = Math.floor(Date.now() / stepMs) * stepMs / 1000;
   if(frameMeta.length && frameMeta[frameMeta.length - 1].time !== latestSec){
-    loadNWSLayer(s);
+    loadWMSFrames(s, spec);
   }
 }
 
-async function startNWSPolling(s){
+async function startWMSPolling(s, spec){
   await refreshVCPStatus();
   // Re-fetch VCP status periodically so the header stays accurate.
   setInterval(async () => {
-    if(settings.radar_source === 'nws') await refreshVCPStatus();
+    if(settings.radar_source === 'nws' || settings.radar_source === 'iem'){
+      await refreshVCPStatus();
+    }
   }, 5 * 60 * 1000);
   // Rebuild the frame-set when a new step boundary becomes available.
   if(nwsRedrawTimer) clearInterval(nwsRedrawTimer);
-  nwsRedrawTimer = setInterval(() => checkForNewNWSFrame(settings), 60 * 1000);
+  nwsRedrawTimer = setInterval(() => checkForNewWMSFrame(settings, spec), 60 * 1000);
 }
 
 async function refreshVCPStatus(){
@@ -401,8 +424,9 @@ function updateVCPDisplay(st){
   const vcp=st.vcp?`VCP ${st.vcp}`:'VCP —';
   const age=st.age_minutes!=null?` · ${Math.round(st.age_minutes)}m ago`:'';
   const fb=st.fallback?' ⚠ FALLBACK':'';
+  const prefix=settings && settings.radar_source==='iem' ? 'IEM N0Q · ' : '';
   document.getElementById('source-label').textContent=
-    `${station} · ${vcp} · ${st.mode||'—'} · ${st.label||''}${age}${fb}`;
+    `${prefix}${station} · ${vcp} · ${st.mode||'—'} · ${st.label||''}${age}${fb}`;
 }
 
 // ── Alert polygons ────────────────────────────────────────
@@ -698,6 +722,8 @@ async function init(){
     document.getElementById('source-label').textContent='RainViewer';
     await loadRainViewer(settings);
     setInterval(()=>checkForNewFrames(settings),60*1000);
+  }else if(settings.radar_source==='iem'){
+    loadIEMLayer(settings);
   }else{
     loadNWSLayer(settings);
   }
