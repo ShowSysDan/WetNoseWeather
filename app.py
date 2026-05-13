@@ -1,6 +1,6 @@
 from flask import Flask, render_template, jsonify, request, Response, send_file
 import requests as req_lib
-import json, os, time, logging, logging.handlers, socket, threading, tempfile, re, hashlib
+import json, os, time, logging, logging.handlers, socket, threading, tempfile, re, hashlib, math
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse, urlencode
@@ -266,6 +266,10 @@ def save_settings(data):
         _atomic_write_json(SETTINGS_FILE, current)
     setup_syslog(current)
     log_event('SETTINGS_CHANGED', {})
+    # Warm the WMS cache for the new view so the next /output load is
+    # served from disk. Fire-and-forget.
+    try: warm_wms_cache_async()
+    except NameError: pass  # warm not defined yet during early imports
     return current
 
 # ── Syslog ───────────────────────────────────────────────
@@ -613,45 +617,42 @@ def _wms_cache_maybe_sweep():
     _wms_cache_last_gc[0] = now
     threading.Thread(target=_wms_cache_sweep, daemon=True).start()
 
-@app.route('/api/wms_tile/<source>')
-def api_wms_tile(source):
+def _fetch_wms_to_cache(source, params, raw_query=None):
+    """Fetch a WMS tile from upstream and write into the on-disk cache.
+    Returns (cache_path, content_bytes, content_type) on success, or
+    (None, None, None) on failure. Safe to call from any thread.
+    """
     if source not in WMS_SOURCES:
-        return jsonify({'error': 'Unknown source'}), 404
-    # Case-insensitive param read (Leaflet sends mixed case).
-    params = {k.lower(): v for k, v in request.args.items()}
+        return (None, None, None)
     layers = params.get('layers', '')
     if layers not in WMS_ALLOWED_LAYERS:
-        return jsonify({'error': f'Layer not allowed: {layers}'}), 400
+        return (None, None, None)
     if params.get('request', 'GetMap') != 'GetMap':
-        return jsonify({'error': 'Only GetMap is proxied'}), 400
+        return (None, None, None)
 
-    key       = _wms_cache_key(source, params)
+    key        = _wms_cache_key(source, params)
     cache_path = os.path.join(WMS_CACHE_DIR, key + '.png')
-
     if os.path.exists(cache_path):
-        # Touch for LRU-by-mtime semantics.
         try: os.utime(cache_path, None)
         except OSError: pass
-        return send_file(cache_path, mimetype='image/png',
-                         max_age=600, conditional=True)
+        try:
+            with open(cache_path, 'rb') as f:
+                return (cache_path, f.read(), 'image/png')
+        except OSError:
+            pass
 
-    upstream = WMS_SOURCES[source] + '?' + urlencode(request.args)
+    query = raw_query if raw_query is not None else urlencode(params)
+    upstream = WMS_SOURCES[source] + '?' + query
     try:
-        resp = req_lib.get(upstream, headers=HEADERS, timeout=15, stream=False)
+        resp = req_lib.get(upstream, headers=HEADERS, timeout=15)
     except req_lib.RequestException as e:
         app_logger.warning(f'wms upstream fetch failed ({source}): {e}')
-        return jsonify({'error': f'Upstream WMS fetch failed: {e}'}), 502
+        return (None, None, None)
 
-    if resp.status_code != 200:
-        return jsonify({'error': f'Upstream returned {resp.status_code}',
-                        'body': resp.text[:200]}), 502
     ctype = resp.headers.get('Content-Type', '')
-    if not ctype.startswith('image/'):
-        # GeoServer/MapServer often return XML error reports with 200.
-        return jsonify({'error': f'Upstream returned non-image ({ctype})',
-                        'body': resp.text[:300]}), 502
+    if resp.status_code != 200 or not ctype.startswith('image/'):
+        return (None, None, ctype)
 
-    # Atomic write so partial reads don't poison the cache.
     fd, tmp_path = tempfile.mkstemp(dir=WMS_CACHE_DIR, prefix='.tmp-', suffix='.png')
     try:
         with os.fdopen(fd, 'wb') as f:
@@ -661,11 +662,168 @@ def api_wms_tile(source):
         try: os.unlink(tmp_path)
         except OSError: pass
         app.logger.warning(f'wms cache write failed: {e}')
+        cache_path = None
+    return (cache_path, resp.content, ctype)
+
+
+@app.route('/api/wms_tile/<source>')
+def api_wms_tile(source):
+    if source not in WMS_SOURCES:
+        return jsonify({'error': 'Unknown source'}), 404
+    params = {k.lower(): v for k, v in request.args.items()}
+    layers = params.get('layers', '')
+    if layers not in WMS_ALLOWED_LAYERS:
+        return jsonify({'error': f'Layer not allowed: {layers}'}), 400
+    if params.get('request', 'GetMap') != 'GetMap':
+        return jsonify({'error': 'Only GetMap is proxied'}), 400
+
+    cache_path, content, ctype = _fetch_wms_to_cache(
+        source, params, raw_query=urlencode(request.args))
     _wms_cache_maybe_sweep()
 
-    out = Response(resp.content, mimetype=ctype)
-    out.headers['Cache-Control'] = 'public, max-age=600'
+    if content is None:
+        return jsonify({'error': 'Upstream WMS fetch failed',
+                        'content_type': ctype}), 502
+
+    # Cache key includes TIME, so tiles never go stale — let the browser
+    # cache aggressively. A day is plenty for a kiosk that hits the same
+    # frame-set repeatedly.
+    if cache_path and os.path.exists(cache_path):
+        return send_file(cache_path, mimetype='image/png',
+                         max_age=86400, conditional=True)
+    out = Response(content, mimetype=ctype or 'image/png')
+    out.headers['Cache-Control'] = 'public, max-age=86400'
     return out
+
+# ── WMS cache pre-warm ───────────────────────────────────
+# Before the browser asks, fetch the visible tile pyramid for the
+# currently configured map view across all animated frames. Triggered
+# on service start, after every settings save, and every minute (the
+# step-boundary check kicks new frames into the warm path as they
+# come online). All requests go through _fetch_wms_to_cache which
+# uses the same cache keys the proxy uses, so the kiosk's WMS layer
+# is fed straight off disk on first paint.
+
+# Viewport buffer in 256px tiles around the configured center. 1920×1080
+# is roughly 7.5×4.25 tiles; we round up and add a 1-tile margin on
+# each side so a small pan after first load is also warm.
+_WARM_TILES_X = 10
+_WARM_TILES_Y = 6
+_warm_lock    = threading.Lock()
+_warm_thread  = [None]
+
+def _tile_xy_for_lonlat(lon, lat, z):
+    n = 2 ** z
+    x = (lon + 180.0) / 360.0 * n
+    lat_rad = math.radians(lat)
+    y = (1.0 - math.log(math.tan(lat_rad) + 1.0 / math.cos(lat_rad)) / math.pi) / 2.0 * n
+    return x, y
+
+def _tile_bbox_3857(z, x, y):
+    half = 20037508.34278925
+    n = 2 ** z
+    span = 2 * half / n
+    minx = -half + x * span
+    maxx = -half + (x + 1) * span
+    maxy =  half - y * span
+    miny =  half - (y + 1) * span
+    return (minx, miny, maxx, maxy)
+
+def _warm_params(layer, frame_iso, bbox):
+    # These keys must match what Leaflet's L.tileLayer.wms 1.1.1 emits
+    # (lower-cased), so the cache key collides with what the browser
+    # will request later.
+    return {
+        'service':     'WMS',
+        'request':     'GetMap',
+        'version':     '1.1.1',
+        'layers':      layer,
+        'styles':      '',
+        'format':      'image/png',
+        'transparent': 'true',
+        'srs':         'EPSG:3857',
+        'bbox':        f'{bbox[0]},{bbox[1]},{bbox[2]},{bbox[3]}',
+        'width':       '256',
+        'height':      '256',
+        'time':        frame_iso,
+    }
+
+def _build_warm_frames(count, step_min):
+    step_s = step_min * 60
+    latest = int(time.time() // step_s) * step_s
+    out = []
+    for i in range(count - 1, -1, -1):
+        t = latest - i * step_s
+        out.append(datetime.fromtimestamp(t, tz=timezone.utc)
+                   .strftime('%Y-%m-%dT%H:%M:%S.000Z'))
+    return out
+
+def _do_warm():
+    try:
+        s = load_settings()
+        source = s.get('radar_source')
+        if source not in ('nws', 'iem'):
+            return
+        layer = 'nexrad-n0q-wmst' if source == 'iem' else \
+                s.get('nws_product', 'conus_bref_qcd')
+        lat   = float(s.get('map_lat',  28.5383))
+        lon   = float(s.get('map_lon', -81.3792))
+        zoom  = int  (s.get('map_zoom', 8))
+        count = int  (s.get('wms_frame_count',    8))
+        step  = int  (s.get('wms_frame_step_min', 5))
+
+        cx, cy = _tile_xy_for_lonlat(lon, lat, zoom)
+        tx0    = int(cx - _WARM_TILES_X / 2)
+        ty0    = int(cy - _WARM_TILES_Y / 2)
+
+        frames = _build_warm_frames(count, step)
+        tasks  = []
+        for iso in frames:
+            for dx in range(_WARM_TILES_X):
+                for dy in range(_WARM_TILES_Y):
+                    tx, ty = tx0 + dx, ty0 + dy
+                    if tx < 0 or ty < 0 or tx >= 2**zoom or ty >= 2**zoom:
+                        continue
+                    bbox = _tile_bbox_3857(zoom, tx, ty)
+                    tasks.append(_warm_params(layer, iso, bbox))
+
+        # 8 parallel upstream fetches. IEM and NCEP both tolerate that
+        # comfortably from a single client.
+        ok = 0
+        with ThreadPoolExecutor(max_workers=8) as ex:
+            futures = [ex.submit(_fetch_wms_to_cache, source, p) for p in tasks]
+            for f in as_completed(futures):
+                path, content, _ = f.result()
+                if content is not None:
+                    ok += 1
+        app_logger.info(
+            f'WMS warm: {ok}/{len(tasks)} tiles ready (source={source}, '
+            f'frames={count}, zoom={zoom})')
+        _wms_cache_maybe_sweep()
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning(f'wms warm failed: {e}')
+
+def warm_wms_cache_async():
+    """Kick a warm, dropping the request if one is already in flight."""
+    with _warm_lock:
+        prev = _warm_thread[0]
+        if prev is not None and prev.is_alive():
+            return False
+        t = threading.Thread(target=_do_warm, daemon=True, name='wms-warm')
+        _warm_thread[0] = t
+        t.start()
+    return True
+
+def _warm_loop():
+    """Periodically rebuild the warm cache as new step boundaries arrive."""
+    while True:
+        try:
+            time.sleep(60)
+            warm_wms_cache_async()
+        except Exception as e:  # noqa: BLE001
+            app.logger.warning(f'warm loop iteration failed: {e}')
+
+threading.Thread(target=_warm_loop, daemon=True, name='wms-warm-loop').start()
 
 # ── API: storm cells ──────────────────────────────────────
 # Proxy + cache for the IEM (Iowa Environmental Mesonet) NEXRAD
@@ -854,6 +1012,7 @@ def radar_status():
 
 # ── Init ──────────────────────────────────────────────────
 log_event('SERVER_START', {'event': 'Wet Nose Weather started'})
+warm_wms_cache_async()
 
 if __name__ == '__main__':
     debug = os.environ.get('WETNOSE_DEBUG', '').lower() in ('1', 'true', 'yes')
