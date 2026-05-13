@@ -192,6 +192,7 @@ There are **two** configuration files:
    | `WETNOSE_PORT` | `5100` | Bind port, 1–65535. |
    | `WETNOSE_DEBUG` | `0` | Flask debug mode. Never enable in production. |
    | `WETNOSE_SECRET_KEY` | *(auto)* | Flask session key. Generate with `python3 -c "import secrets; print(secrets.token_hex(32))"`. If blank, a fresh key is generated on every process start (sessions don't survive restarts). |
+   | `WETNOSE_WMS_CACHE_MB` | `2048` | Max disk size for the cached WMS tile pyramid under `cache/wms/`. Oldest tiles are evicted by mtime when the cap is exceeded. |
 
    `wetnose.env` is gitignored. Existing environment variables (e.g. systemd `Environment=` directives, or your shell) take precedence over values in the file.
 
@@ -215,6 +216,7 @@ There are **two** configuration files:
 | `nws_product` | string | `"conus_bref_qcd"` | NWS WMS product layer |
 | `wms_frame_count` | int | `8` | Number of animated WMS frames (NWS/IEM only). 2–24. |
 | `wms_frame_step_min` | int | `5` | Minutes between WMS frames (NWS/IEM only). 1–15. Total loop = count × step. |
+| `anim_hold_last_ms` | int | `0` | Extra pause (ms) on the final frame before the loop restarts. 0–10000. Applies to all sources. |
 | `webhook_url` | string | `""` | HTTP/HTTPS endpoint for alert POSTs |
 | `webhook_min_severity` | string | `"Severe"` | `Extreme`/`Severe`/`Moderate`/`Minor` |
 | `syslog_enabled` | bool | `false` | Enable UDP syslog output |
@@ -274,6 +276,7 @@ There are **two** configuration files:
 | `GET`  | `/api/station_coords` | Lat/lon of KMLB and KTBW |
 | `GET`  | `/api/geocode?q=...` | Resolve a US address to lat/lon via Nominatim (cached 24h, rate-limited) |
 | `GET`  | `/api/storm_cells` | Proxied IEM NEXRAD storm-attributes GeoJSON (cached 30s, serves stale data if IEM is briefly unreachable) |
+| `GET`  | `/api/wms_tile/<source>` | WMS tile proxy for `nws` and `iem`. Mirrors Leaflet's GetMap request to the upstream, caches the PNG on disk under `cache/wms/`, and serves from cache thereafter. Layer parameter whitelisted. Cache size capped by `WETNOSE_WMS_CACHE_MB` (default 2048). |
 | `GET`  | `/api/logs?n=200` | Last N alert-log entries (max 500) |
 | `POST` | `/api/logs/clear` | Truncate the alert log |
 
@@ -330,10 +333,11 @@ wetnoseweather/
 │   ├── index.html               # Landing page
 │   ├── output.html              # 1920×1080 kiosk display
 │   └── settings.html            # Settings admin interface
-└── logs/                        # Created at runtime, excluded from git
-    ├── alerts.jsonl             # Event log
-    ├── notified.json            # Webhook dedup state
-    └── active_station.txt       # Cross-worker failover state
+├── logs/                        # Created at runtime, excluded from git
+│   ├── alerts.jsonl             # Event log
+│   ├── notified.json            # Webhook dedup state
+│   └── active_station.txt       # Cross-worker failover state
+└── cache/wms/                   # WMS tile cache (PNG, capped by WETNOSE_WMS_CACHE_MB)
 ```
 
 ---

@@ -1,9 +1,9 @@
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, Response, send_file
 import requests as req_lib
-import json, os, time, logging, logging.handlers, socket, threading, tempfile, re
+import json, os, time, logging, logging.handlers, socket, threading, tempfile, re, hashlib
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlencode
 import ipaddress, secrets
 
 app = Flask(__name__)
@@ -42,7 +42,9 @@ SETTINGS_FILE = os.path.join(BASE_DIR, 'settings.json')
 LOG_DIR       = os.path.join(BASE_DIR, 'logs')
 LOG_FILE      = os.path.join(LOG_DIR, 'alerts.jsonl')
 NOTIFIED_FILE = os.path.join(LOG_DIR, 'notified.json')
+WMS_CACHE_DIR = os.path.join(BASE_DIR, 'cache', 'wms')
 os.makedirs(LOG_DIR, exist_ok=True)
+os.makedirs(WMS_CACHE_DIR, exist_ok=True)
 
 HEADERS = {"User-Agent": "WetNoseWeather/1.0 (+https://github.com/showsysdan/wetnoseweather)"}
 
@@ -105,6 +107,7 @@ DEFAULT_SETTINGS = {
     'nws_product':          'conus_bref_qcd',
     'wms_frame_count':      8,    # NWS/IEM animated frame count (2–24)
     'wms_frame_step_min':   5,    # minutes between frames (1–15)
+    'anim_hold_last_ms':    0,    # pause on the final frame before looping (0–10000 ms)
     # Notifications
     'webhook_url':            '',
     'webhook_min_severity':   'Severe',
@@ -199,6 +202,7 @@ def validate_settings(data):
     ii('map_zoom',2,18); ii('opacity',0,100); ii('anim_speed',50,5000)
     ii('rv_color',0,8); ii('syslog_port',1,65535)
     ii('wms_frame_count',2,24); ii('wms_frame_step_min',1,15)
+    ii('anim_hold_last_ms',0,10000)
     en('radar_source',ALLOWED_RADAR_SOURCES); en('nws_product',ALLOWED_NWS_PRODUCTS)
     en('range_ring_station',ALLOWED_RING_STATIONS); en('webhook_min_severity',ALLOWED_SEVERITIES)
     en('syslog_facility',ALLOWED_SYSLOG_FACILITIES)
@@ -542,6 +546,126 @@ def api_geocode():
         for old_key in list(_geocode_cache)[:64]:
             _geocode_cache.pop(old_key, None)
     return jsonify(out)
+
+# ── API: WMS tile proxy + disk cache ─────────────────────
+# Leaflet's L.tileLayer.wms points at this endpoint; we forward the
+# query string to the upstream WMS, cache the response PNG on disk
+# keyed by a hash of the canonical request, and serve from cache on
+# subsequent hits. Big speed win on the kiosk: page refreshes,
+# frame-loop ticks, and source switches become local disk reads.
+
+WMS_SOURCES = {
+    'nws': 'https://opengeo.ncep.noaa.gov/geoserver/conus/ows',
+    'iem': 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi',
+}
+# Layers the proxy will forward. Acts as a whitelist so the endpoint
+# can't be turned into an open WMS proxy.
+WMS_ALLOWED_LAYERS = ALLOWED_NWS_PRODUCTS | {'nexrad-n0q-wmst'}
+
+try:
+    WMS_CACHE_MAX_BYTES = int(os.environ.get('WETNOSE_WMS_CACHE_MB', '2048')) * 1024 * 1024
+except ValueError:
+    WMS_CACHE_MAX_BYTES = 2048 * 1024 * 1024
+
+_wms_cache_lock     = threading.Lock()
+_wms_cache_last_gc  = [0.0]
+_WMS_CACHE_GC_EVERY = 300  # seconds between sweeps
+
+def _wms_cache_key(source, params):
+    # Canonicalize for stability across Leaflet request orderings.
+    relevant = ['layers','styles','format','transparent','time',
+                'bbox','width','height','srs','crs','version']
+    canonical = '|'.join(f'{k}={params.get(k,"")}' for k in relevant)
+    h = hashlib.sha256(f'{source}|{canonical}'.encode()).hexdigest()
+    return h
+
+def _wms_cache_sweep():
+    """Walk the cache, sort by mtime, evict oldest until under budget."""
+    try:
+        entries = []
+        total = 0
+        for name in os.listdir(WMS_CACHE_DIR):
+            path = os.path.join(WMS_CACHE_DIR, name)
+            try:
+                st = os.stat(path)
+            except OSError:
+                continue
+            entries.append((st.st_mtime, st.st_size, path))
+            total += st.st_size
+        if total <= WMS_CACHE_MAX_BYTES:
+            return
+        entries.sort()  # oldest first
+        for _, size, path in entries:
+            if total <= WMS_CACHE_MAX_BYTES:
+                break
+            try:
+                os.unlink(path)
+                total -= size
+            except OSError:
+                pass
+    except Exception as e:  # noqa: BLE001
+        app.logger.warning(f'wms cache sweep failed: {e}')
+
+def _wms_cache_maybe_sweep():
+    now = time.time()
+    if now - _wms_cache_last_gc[0] < _WMS_CACHE_GC_EVERY:
+        return
+    _wms_cache_last_gc[0] = now
+    threading.Thread(target=_wms_cache_sweep, daemon=True).start()
+
+@app.route('/api/wms_tile/<source>')
+def api_wms_tile(source):
+    if source not in WMS_SOURCES:
+        return jsonify({'error': 'Unknown source'}), 404
+    # Case-insensitive param read (Leaflet sends mixed case).
+    params = {k.lower(): v for k, v in request.args.items()}
+    layers = params.get('layers', '')
+    if layers not in WMS_ALLOWED_LAYERS:
+        return jsonify({'error': f'Layer not allowed: {layers}'}), 400
+    if params.get('request', 'GetMap') != 'GetMap':
+        return jsonify({'error': 'Only GetMap is proxied'}), 400
+
+    key       = _wms_cache_key(source, params)
+    cache_path = os.path.join(WMS_CACHE_DIR, key + '.png')
+
+    if os.path.exists(cache_path):
+        # Touch for LRU-by-mtime semantics.
+        try: os.utime(cache_path, None)
+        except OSError: pass
+        return send_file(cache_path, mimetype='image/png',
+                         max_age=600, conditional=True)
+
+    upstream = WMS_SOURCES[source] + '?' + urlencode(request.args)
+    try:
+        resp = req_lib.get(upstream, headers=HEADERS, timeout=15, stream=False)
+    except req_lib.RequestException as e:
+        app_logger.warning(f'wms upstream fetch failed ({source}): {e}')
+        return jsonify({'error': f'Upstream WMS fetch failed: {e}'}), 502
+
+    if resp.status_code != 200:
+        return jsonify({'error': f'Upstream returned {resp.status_code}',
+                        'body': resp.text[:200]}), 502
+    ctype = resp.headers.get('Content-Type', '')
+    if not ctype.startswith('image/'):
+        # GeoServer/MapServer often return XML error reports with 200.
+        return jsonify({'error': f'Upstream returned non-image ({ctype})',
+                        'body': resp.text[:300]}), 502
+
+    # Atomic write so partial reads don't poison the cache.
+    fd, tmp_path = tempfile.mkstemp(dir=WMS_CACHE_DIR, prefix='.tmp-', suffix='.png')
+    try:
+        with os.fdopen(fd, 'wb') as f:
+            f.write(resp.content)
+        os.replace(tmp_path, cache_path)
+    except OSError as e:
+        try: os.unlink(tmp_path)
+        except OSError: pass
+        app.logger.warning(f'wms cache write failed: {e}')
+    _wms_cache_maybe_sweep()
+
+    out = Response(resp.content, mimetype=ctype)
+    out.headers['Cache-Control'] = 'public, max-age=600'
+    return out
 
 # ── API: storm cells ──────────────────────────────────────
 # Proxy + cache for the IEM (Iowa Environmental Mesonet) NEXRAD

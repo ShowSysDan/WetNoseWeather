@@ -15,6 +15,7 @@
   "nws_product":         "conus_bref_qcd",
   "wms_frame_count":     8,
   "wms_frame_step_min":  5,
+  "anim_hold_last_ms":   0,
   "webhook_url":         "",
   "webhook_min_severity":"Severe",
   "syslog_enabled":      false,

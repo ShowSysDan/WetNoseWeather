@@ -162,10 +162,10 @@ const HEALTH_INTERVAL    = 5  * 1000;
 const SETTINGS_INTERVAL  = 10 * 1000;
 const ALERT_INTERVAL     = 5  * 60 * 1000;
 const HARD_RELOAD_MS     = 15 * 60 * 1000;
-const NWS_WMS_BASE       = 'https://opengeo.ncep.noaa.gov/geoserver/conus/ows';
-// The "-t" endpoint serves the time-enabled (WMS-T) variant; the layer
-// nexrad-n0q-wmst only exists in n0q-t.map, not n0q.map.
-const IEM_WMS_BASE       = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi';
+// Both WMS sources are proxied through the Flask app so we can cache
+// tiles on disk. The upstream URLs live in app.py's WMS_SOURCES map.
+const NWS_WMS_BASE       = '/api/wms_tile/nws';
+const IEM_WMS_BASE       = '/api/wms_tile/iem';
 const IEM_WMS_LAYER      = 'nexrad-n0q-wmst';
 const NWS_FRAME_COUNT    = 8;            // animated WMS frames
 const NWS_FRAME_STEP_MIN = 5;            // minutes between frames
@@ -285,9 +285,21 @@ function showFrame(idx){
   }
 }
 
+function stopAnimation(){
+  if(animTimer){ clearTimeout(animTimer); animTimer = null; }
+}
+
 function startAnimation(speed){
-  if(animTimer) clearInterval(animTimer);
-  animTimer=setInterval(()=>showFrame((currentFrame+1)%radarFrames.length),speed);
+  stopAnimation();
+  const tick = () => {
+    const next = (currentFrame + 1) % radarFrames.length;
+    showFrame(next);
+    // Hold the final frame for an extra beat before looping back.
+    const onLast = next === radarFrames.length - 1;
+    const hold   = onLast ? (Number(settings?.anim_hold_last_ms) || 0) : 0;
+    animTimer = setTimeout(tick, speed + hold);
+  };
+  animTimer = setTimeout(tick, speed);
 }
 
 async function checkForNewFrames(s){
@@ -297,7 +309,7 @@ async function checkForNewFrames(s){
     if(!data.radar?.past) return;
     const frames=[...(data.radar.past||[]),...(data.radar.nowcast||[])];
     if(frames[frames.length-1]?.time!==frameMeta[frameMeta.length-1]?.time){
-      if(animTimer){clearInterval(animTimer);animTimer=null;}
+      stopAnimation();
       await loadRainViewer(s);
     }
   }catch(e){}
@@ -348,7 +360,7 @@ function loadWMSFrames(s, spec){
   // Tear down any existing frames (RainViewer or stale WMS).
   radarFrames.forEach(l => map.removeLayer(l));
   radarFrames = [];
-  if(animTimer){ clearInterval(animTimer); animTimer = null; }
+  stopAnimation();
 
   const frames = buildNWSFrames();
   let nwsErrors = 0;
@@ -701,7 +713,7 @@ async function checkHealth(){
   }catch(e){
     isOffline=true;
     document.getElementById('offline-overlay').classList.add('visible');
-    if(animTimer){clearInterval(animTimer);animTimer=null;}
+    stopAnimation();
   }
 }
 
