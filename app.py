@@ -598,19 +598,41 @@ def _wms_cache_key(source, params):
     h = hashlib.sha256(f'{source}|{canonical}'.encode()).hexdigest()
     return h
 
+def _wms_cache_path(source, key):
+    """Per-source subdirectory under cache/wms/ so the operator can
+    see at a glance how much each upstream is holding (e.g.
+    `du -sh cache/wms/iem`). All sources use the same SHA-256 key
+    space — only the folder differs."""
+    d = os.path.join(WMS_CACHE_DIR, source)
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, key + '.png')
+
 def _wms_cache_sweep():
-    """Walk the cache, sort by mtime, evict oldest until under budget."""
+    """Walk every per-source subdir, sort by mtime, evict oldest
+    until under budget. Also cleans up stragglers from the pre-
+    subdir cache layout (flat .png files directly under WMS_CACHE_DIR)
+    so upgrades don't leave orphaned tiles that never get evicted."""
     try:
         entries = []
-        total = 0
+        total   = 0
         for name in os.listdir(WMS_CACHE_DIR):
             path = os.path.join(WMS_CACHE_DIR, name)
-            try:
-                st = os.stat(path)
-            except OSError:
+            if os.path.isfile(path) and name.endswith('.png'):
+                # Legacy flat-layout artifact. The new cache key is in a
+                # per-source subdir; this file is unreachable now.
+                try: os.unlink(path)
+                except OSError: pass
                 continue
-            entries.append((st.st_mtime, st.st_size, path))
-            total += st.st_size
+            if not os.path.isdir(path):
+                continue
+            for fname in os.listdir(path):
+                fpath = os.path.join(path, fname)
+                try:
+                    st = os.stat(fpath)
+                except OSError:
+                    continue
+                entries.append((st.st_mtime, st.st_size, fpath))
+                total += st.st_size
         if total <= WMS_CACHE_MAX_BYTES:
             return
         entries.sort()  # oldest first
@@ -649,7 +671,8 @@ def _fetch_wms_to_cache(source, params, raw_query=None):
         if params.get('sector', '') not in WMS_RIDGE_SECTORS: return (None, None, None)
 
     key        = _wms_cache_key(source, params)
-    cache_path = os.path.join(WMS_CACHE_DIR, key + '.png')
+    cache_path = _wms_cache_path(source, key)
+    cache_dir  = os.path.dirname(cache_path)
     if os.path.exists(cache_path):
         try: os.utime(cache_path, None)
         except OSError: pass
@@ -671,7 +694,7 @@ def _fetch_wms_to_cache(source, params, raw_query=None):
     if resp.status_code != 200 or not ctype.startswith('image/'):
         return (None, None, ctype)
 
-    fd, tmp_path = tempfile.mkstemp(dir=WMS_CACHE_DIR, prefix='.tmp-', suffix='.png')
+    fd, tmp_path = tempfile.mkstemp(dir=cache_dir, prefix='.tmp-', suffix='.png')
     try:
         with os.fdopen(fd, 'wb') as f:
             f.write(resp.content)
