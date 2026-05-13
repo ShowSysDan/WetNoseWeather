@@ -13,6 +13,8 @@
   "show_satellite_ir":   false,
   "show_hurricane":      true,
   "nws_product":         "conus_bref_qcd",
+  "wms_frame_count":     8,
+  "wms_frame_step_min":  5,
   "webhook_url":         "",
   "webhook_min_severity":"Severe",
   "syslog_enabled":      false,

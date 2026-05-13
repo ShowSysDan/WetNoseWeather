@@ -123,8 +123,8 @@
       letter-spacing:.05em;color:var(--text-mid)}
 
     /* ── Dependency-hidden fields ── */
-    .rv-only,.nws-only{transition:opacity .2s}
-    .rv-only.hidden,.nws-only.hidden{opacity:.3;pointer-events:none}
+    .rv-only,.nws-only,.wms-only{transition:opacity .2s}
+    .rv-only.hidden,.nws-only.hidden,.wms-only.hidden{opacity:.3;pointer-events:none}
 
     /* ── Station status ── */
     .station-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
@@ -405,15 +405,50 @@
         </select>
       </div>
     </div>
+  </div>
+
+  <!-- ── Animation ── -->
+  <div class="section">
+    <div class="section-header">Animation</div>
     <div class="field-row">
-      <div class="field-label"><strong>Animation Speed</strong></div>
+      <div class="field-label"><strong>Speed</strong>
+        <span>Time between frames. Applies to all radar sources.</span></div>
       <div class="field-control">
         <select class="styled-select" id="anim_speed">
+          <option value="1200">Very Slow (1200ms)</option>
           <option value="900">Slow (900ms)</option>
           <option value="500">Normal (500ms)</option>
-          <option value="200">Fast (200ms)</option>
+          <option value="300">Fast (300ms)</option>
+          <option value="200">Faster (200ms)</option>
+          <option value="120">Very Fast (120ms)</option>
           <option value="80">Max (80ms)</option>
         </select>
+      </div>
+    </div>
+    <div class="field-row wms-only">
+      <div class="field-label"><strong>Frame Count</strong>
+        <span>How many WMS frames to render (NWS / IEM only). 2–24.</span></div>
+      <div class="field-control">
+        <input class="styled-input" type="number" id="wms_frame_count"
+               min="2" max="24" step="1" style="width:120px"
+               oninput="updateLoopLength()">
+      </div>
+    </div>
+    <div class="field-row wms-only">
+      <div class="field-label"><strong>Frame Step (minutes)</strong>
+        <span>Minutes between WMS frames. 1–15. Total loop = count × step.</span></div>
+      <div class="field-control">
+        <input class="styled-input" type="number" id="wms_frame_step_min"
+               min="1" max="15" step="1" style="width:120px"
+               oninput="updateLoopLength()">
+      </div>
+    </div>
+    <div class="field-row wms-only">
+      <div class="field-label"><strong>Loop Length</strong>
+        <span>How far back in time the loop covers (computed).</span></div>
+      <div class="field-control">
+        <span id="loop-length" style="font-family:var(--font-ui);font-size:14px;
+              color:var(--text-bright);letter-spacing:.05em">—</span>
       </div>
     </div>
   </div>
@@ -815,6 +850,13 @@ function toggleSyslogFields(){
 function updateSourceVis(src){
   document.querySelectorAll('.rv-only') .forEach(el=>el.classList.toggle('hidden',src!=='rainviewer'));
   document.querySelectorAll('.nws-only').forEach(el=>el.classList.toggle('hidden',src!=='nws'));
+  document.querySelectorAll('.wms-only').forEach(el=>el.classList.toggle('hidden',src!=='nws'&&src!=='iem'));
+}
+
+function updateLoopLength(){
+  const n   = Math.max(2,  Math.min(24, parseInt(document.getElementById('wms_frame_count').value)||8));
+  const step= Math.max(1,  Math.min(15, parseInt(document.getElementById('wms_frame_step_min').value)||5));
+  document.getElementById('loop-length').textContent = `${n} frames × ${step} min = ${n*step} min`;
 }
 
 document.querySelectorAll('input[name=radar_source]').forEach(r=>{
@@ -826,7 +868,7 @@ document.querySelectorAll('input[name=radar_source]').forEach(r=>{
 });
 
 // ── Load settings ─────────────────────────────────────────
-const SPEED_NAMES={900:'Slow',500:'Normal',200:'Fast',80:'Max'};
+const SPEED_NAMES={1200:'Very Slow',900:'Slow',500:'Normal',300:'Fast',200:'Faster',120:'Very Fast',80:'Max'};
 const COLOR_NAMES={0:'Original',1:'Universal Blue',2:'TITAN',3:'TWC',
                    4:'Meteored',5:'NEXRAD L3',6:'Rainbow',7:'Dark Sky'};
 
@@ -859,6 +901,9 @@ function applyToForm(s){
   // Dropdowns
   document.getElementById('rv_color').value=s.rv_color??6;
   document.getElementById('anim_speed').value=s.anim_speed??500;
+  document.getElementById('wms_frame_count').value=s.wms_frame_count??8;
+  document.getElementById('wms_frame_step_min').value=s.wms_frame_step_min??5;
+  updateLoopLength();
   document.getElementById('nws_product').value=s.nws_product||'conus_bref_qcd';
   document.getElementById('range_ring_station').value=s.range_ring_station||'KMLB';
   document.getElementById('webhook_min_severity').value=s.webhook_min_severity||'Severe';
@@ -911,8 +956,8 @@ function updatePreview(s){
   document.getElementById('prev-loc').textContent=`${(s.map_lat||0).toFixed(3)}, ${(s.map_lon||0).toFixed(3)}`;
   document.getElementById('prev-zoom').textContent=s.map_zoom||8;
   document.getElementById('prev-opacity').textContent=(s.opacity??70)+'%';
-  document.getElementById('prev-speed').textContent=
-    s.radar_source==='rainviewer'?(SPEED_NAMES[s.anim_speed]||s.anim_speed+'ms'):'N/A';
+  document.getElementById('prev-speed').textContent =
+    (SPEED_NAMES[s.anim_speed]||((s.anim_speed??500)+'ms'));
   document.getElementById('prev-sidebar').textContent=s.show_sidebar!==false?'On':'Off';
   const ov=[];
   if(s.show_alert_polygons) ov.push('Polygons');
@@ -982,6 +1027,8 @@ async function saveSettings(){
     radar_source: document.querySelector('input[name=radar_source]:checked')?.value||'rainviewer',
     rv_color:     parseInt(document.getElementById('rv_color').value),
     anim_speed:   parseInt(document.getElementById('anim_speed').value),
+    wms_frame_count:    parseInt(document.getElementById('wms_frame_count').value)||8,
+    wms_frame_step_min: parseInt(document.getElementById('wms_frame_step_min').value)||5,
     nws_product:  document.getElementById('nws_product').value,
     opacity:      parseInt(document.getElementById('opacity').value),
     map_lat:      parseFloat(document.getElementById('map_lat').value),

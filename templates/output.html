@@ -115,7 +115,7 @@
 <body>
 
 <div id="offline-overlay"><div id="offline-dot"></div></div>
-<div id="nws-toast"><div id="nws-toast-dot"></div><span>NWS tiles unavailable</span></div>
+<div id="nws-toast"><div id="nws-toast-dot"></div><span id="nws-toast-text">Radar tiles unavailable</span></div>
 
 <div id="alert-banner">
   <div id="brand" title="Wet Nose Weather">
@@ -163,7 +163,9 @@ const SETTINGS_INTERVAL  = 10 * 1000;
 const ALERT_INTERVAL     = 5  * 60 * 1000;
 const HARD_RELOAD_MS     = 15 * 60 * 1000;
 const NWS_WMS_BASE       = 'https://opengeo.ncep.noaa.gov/geoserver/conus/ows';
-const IEM_WMS_BASE       = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi';
+// The "-t" endpoint serves the time-enabled (WMS-T) variant; the layer
+// nexrad-n0q-wmst only exists in n0q-t.map, not n0q.map.
+const IEM_WMS_BASE       = 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi';
 const IEM_WMS_LAYER      = 'nexrad-n0q-wmst';
 const NWS_FRAME_COUNT    = 8;            // animated WMS frames
 const NWS_FRAME_STEP_MIN = 5;            // minutes between frames
@@ -315,12 +317,21 @@ function loadSatelliteIR(irFrames, s){
 }
 
 // ── NWS WMS (animated via TIME dimension) ─────────────────
+function frameCount(){
+  const n = Number(settings && settings.wms_frame_count);
+  return Number.isFinite(n) && n >= 2 && n <= 24 ? Math.floor(n) : NWS_FRAME_COUNT;
+}
+function frameStepMin(){
+  const n = Number(settings && settings.wms_frame_step_min);
+  return Number.isFinite(n) && n >= 1 && n <= 15 ? n : NWS_FRAME_STEP_MIN;
+}
 function buildNWSFrames(){
-  // Align to NWS_FRAME_STEP_MIN-minute boundaries, then walk backward.
-  const stepMs = NWS_FRAME_STEP_MIN * 60 * 1000;
+  // Align to step-minute boundaries, then walk backward.
+  const stepMs = frameStepMin() * 60 * 1000;
+  const count  = frameCount();
   const latest = Math.floor(Date.now() / stepMs) * stepMs;
   const frames = [];
-  for(let i = NWS_FRAME_COUNT - 1; i >= 0; i--){
+  for(let i = count - 1; i >= 0; i--){
     const ms = latest - i * stepMs;
     frames.push({
       time: Math.floor(ms / 1000),
@@ -357,7 +368,12 @@ function loadWMSFrames(s, spec){
     });
     l.on('tileerror', () => {
       nwsErrors++;
-      if(nwsErrors >= 3) document.getElementById('nws-toast').classList.add('visible');
+      if(nwsErrors >= 3){
+        const labelMap = {nws:'NWS', iem:'IEM'};
+        const label = labelMap[settings.radar_source] || 'Radar';
+        document.getElementById('nws-toast-text').textContent = label + ' tiles unavailable';
+        document.getElementById('nws-toast').classList.add('visible');
+      }
     });
     radarFrames.push(l);
   });
@@ -392,7 +408,7 @@ function loadIEMLayer(s){
 async function checkForNewWMSFrame(s, spec){
   if(isOffline) return;
   if(s.radar_source !== 'nws' && s.radar_source !== 'iem') return;
-  const stepMs    = NWS_FRAME_STEP_MIN * 60 * 1000;
+  const stepMs    = frameStepMin() * 60 * 1000;
   const latestSec = Math.floor(Date.now() / stepMs) * stepMs / 1000;
   if(frameMeta.length && frameMeta[frameMeta.length - 1].time !== latestSec){
     loadWMSFrames(s, spec);
