@@ -599,24 +599,32 @@ function loadPin(){
       fillColor:'#00c9b8',fillOpacity:0.06,opacity:0.7
     }).addTo(map);
   }
+  const pinSz    = Math.max(6, Math.min(48, Number(settings.pin_size_px)       || 14));
+  const labelSz  = Math.max(8, Math.min(36, Number(settings.pin_label_size_px) || 11));
+  // Icon box has to include the 2px ring + 2px box-shadow so positioning
+  // stays accurate regardless of the dot size.
+  const box      = pinSz + 4;
+  const anchor   = box / 2;
+
   pinLayer=L.marker([lat,lon],{
     icon:L.divIcon({
-      html:'<div style="width:14px;height:14px;border-radius:50%;background:#00c9b8;'
+      html:`<div style="width:${pinSz}px;height:${pinSz}px;border-radius:50%;background:#00c9b8;`
           +'border:2px solid #07080d;box-shadow:0 0 0 2px #00c9b8,0 0 8px rgba(0,201,184,.8)"></div>',
-      className:'',iconSize:[14,14],iconAnchor:[7,7]
+      className:'',iconSize:[box,box],iconAnchor:[anchor,anchor]
     })
   }).addTo(map);
   const label=(settings.pin_label||'').trim();
   if(label){
     pinLabelLayer=L.marker([lat,lon],{
       icon:L.divIcon({
-        html:'<span style="font-family:var(--font-ui);font-size:11px;font-weight:700;'
+        html:`<span style="font-family:var(--font-ui);font-size:${labelSz}px;font-weight:700;`
             +'letter-spacing:.12em;text-transform:uppercase;color:#cde0f0;'
             +'background:rgba(7,8,13,.85);padding:2px 6px;border:1px solid #00c9b8;'
             +'border-radius:2px;white-space:nowrap">'
             +label.replace(/[<>&"']/g,c=>({"<":"&lt;",">":"&gt;","&":"&amp;",'"':"&quot;","'":"&#39;"}[c]))
             +'</span>',
-        className:'',iconAnchor:[-10,8]
+        // Sit the label to the right of the dot, vertically centered on it.
+        className:'',iconAnchor:[-(anchor+2), labelSz/2 + 2]
       })
     }).addTo(map);
   }

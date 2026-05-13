@@ -125,6 +125,8 @@ DEFAULT_SETTINGS = {
     'pin_label':           '',
     'pin_radius_enabled':  False,
     'pin_radius_miles':    10,
+    'pin_size_px':         14,
+    'pin_label_size_px':   11,
     # Storm cell tracks (IEM NEXRAD storm-attributes feed)
     'show_storm_cells':    False,
     'storm_cells_url':     'https://mesonet.agron.iastate.edu/geojson/nexrad_attr.geojson',
@@ -201,6 +203,7 @@ def validate_settings(data):
     fi('map_lat',-90,90); fi('map_lon',-180,180)
     fi('pin_lat',-90,90); fi('pin_lon',-180,180)
     fi('pin_radius_miles', 0.1, 500)
+    ii('pin_size_px', 6, 48); ii('pin_label_size_px', 8, 36)
     ii('map_zoom',2,18); ii('opacity',0,100); ii('anim_speed',50,5000)
     ii('rv_color',0,8); ii('syslog_port',1,65535)
     ii('wms_frame_count',2,24); ii('wms_frame_step_min',1,15)

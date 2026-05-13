@@ -343,6 +343,26 @@
                  oninput="updatePinPreview()">
         </div>
       </div>
+
+      <div class="field-row">
+        <div class="field-label"><strong>Pin Dot Size (px)</strong>
+          <span>Diameter of the pin marker. 6–48.</span></div>
+        <div class="field-control">
+          <input class="styled-input" type="number" id="pin_size_px"
+                 min="6" max="48" step="1" style="width:120px"
+                 oninput="updatePinPreview()">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field-label"><strong>Label Size (px)</strong>
+          <span>Font size of the pin label. 8–36.</span></div>
+        <div class="field-control">
+          <input class="styled-input" type="number" id="pin_label_size_px"
+                 min="8" max="36" step="1" style="width:120px"
+                 oninput="updatePinPreview()">
+        </div>
+      </div>
     </div>
   </div>
 
@@ -728,11 +748,18 @@ function initPosMap(lat, lon, zoom){
 }
 
 // ── Pin marker + radius preview ──────────────────────────
+function pinSizeFromForm(){
+  const n = parseInt(document.getElementById('pin_size_px').value);
+  return Number.isFinite(n) ? Math.max(6, Math.min(48, n)) : 14;
+}
+
 function pinIcon(){
+  const sz = pinSizeFromForm();
+  const box = sz + 4, anchor = box/2;
   return L.divIcon({
-    html:'<div style="width:14px;height:14px;border-radius:50%;background:#00c9b8;'
+    html:`<div style="width:${sz}px;height:${sz}px;border-radius:50%;background:#00c9b8;`
         +'border:2px solid #07080d;box-shadow:0 0 0 2px #00c9b8"></div>',
-    className:'',iconSize:[14,14],iconAnchor:[7,7]
+    className:'',iconSize:[box,box],iconAnchor:[anchor,anchor]
   });
 }
 
@@ -748,6 +775,7 @@ function ensurePinMarker(lat,lon){
     });
   } else {
     pinMarker.setLatLng([lat,lon]);
+    pinMarker.setIcon(pinIcon());
   }
 }
 
@@ -978,6 +1006,8 @@ function applyToForm(s){
   document.getElementById('pin_label').value=s.pin_label||'';
   document.getElementById('pin_radius_enabled').checked=!!s.pin_radius_enabled;
   document.getElementById('pin_radius_miles').value=s.pin_radius_miles??10;
+  document.getElementById('pin_size_px').value=s.pin_size_px??14;
+  document.getElementById('pin_label_size_px').value=s.pin_label_size_px??11;
   togglePinFields();
 }
 
@@ -1091,6 +1121,8 @@ async function saveSettings(){
     pin_label:           document.getElementById('pin_label').value.trim(),
     pin_radius_enabled:  document.getElementById('pin_radius_enabled').checked,
     pin_radius_miles:    parseFloat(document.getElementById('pin_radius_miles').value)||10,
+    pin_size_px:         parseInt(document.getElementById('pin_size_px').value)||14,
+    pin_label_size_px:   parseInt(document.getElementById('pin_label_size_px').value)||11,
     show_storm_cells:    document.getElementById('show_storm_cells').checked,
     storm_cells_url:     document.getElementById('storm_cells_url').value.trim(),
   };
