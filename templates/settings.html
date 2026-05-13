@@ -829,10 +829,19 @@ const COLOR_NAMES={0:'Original',1:'Universal Blue',2:'TITAN',3:'TWC',
 async function loadSettings(){
   try{
     const s=await fetch('/api/settings',{cache:'no-store'}).then(r=>r.json());
-    applyToForm(s); updatePreview(s);
-    initPosMap(s.map_lat||28.5383, s.map_lon||-81.3792, s.map_zoom||8);
-    setTimeout(()=>{ posMap.invalidateSize(); updatePinPreview(); },200);
-  }catch(e){ setStatus('⚠ Could not load settings','error'); }
+    try{ applyToForm(s); }catch(e){ console.error('applyToForm:',e); }
+    try{ updatePreview(s); }catch(e){ console.error('updatePreview:',e); }
+    try{
+      initPosMap(s.map_lat||28.5383, s.map_lon||-81.3792, s.map_zoom||8);
+      setTimeout(()=>{
+        if(posMap) posMap.invalidateSize();
+        try{ updatePinPreview(); }catch(e){ console.error('updatePinPreview:',e); }
+      },200);
+    }catch(e){ console.error('initPosMap:',e); }
+  }catch(e){
+    console.error('loadSettings failed:', e);
+    setStatus('⚠ Could not load settings — '+(e.message||e),'error');
+  }
 }
 
 function applyToForm(s){
