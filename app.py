@@ -274,6 +274,10 @@ def save_settings(data):
     # served from disk. Fire-and-forget.
     try: warm_wms_cache_async()
     except NameError: pass  # warm not defined yet during early imports
+    # Kick the upstream pollers so map_lat/lon and station changes
+    # take effect immediately instead of waiting up to 5 minutes.
+    try: _poke_alerts_poll(); _poke_radar_poll()
+    except NameError: pass
     return current
 
 # ── Syslog ───────────────────────────────────────────────
@@ -442,46 +446,60 @@ def api_station_coords():
     return jsonify(STATION_COORDS)
 
 # ── API: alerts ───────────────────────────────────────────
-def _alerts_for_point(lat, lon):
+# Alerts and radar-status are served from in-process caches refreshed
+# by dedicated daemon threads (see "Upstream pollers" below). The
+# request handlers never touch api.weather.gov directly, so a slow or
+# unreachable NWS endpoint can't tie up gunicorn worker threads, and
+# /api/alerts / /api/radar_status are constant-time cache reads.
+def _alerts_for_point(lat, lon, timeout=(2, 5)):
     resp = req_lib.get(
         f'https://api.weather.gov/alerts/active?point={lat},{lon}',
-        headers=HEADERS, timeout=10,
+        headers=HEADERS, timeout=timeout,
     )
     resp.raise_for_status()
     return resp.json()
 
+_alerts_cache = {
+    'features':   [],
+    'fetched_at': 0.0,
+    'lat':        None,
+    'lon':        None,
+    'stale':      True,
+    'error':      None,
+}
+_alerts_lock = threading.Lock()
+
 @app.route('/api/alerts')
 def get_alerts():
-    s = load_settings()
-    try:
-        data = _alerts_for_point(s.get('map_lat', 28.5383), s.get('map_lon', -81.3792))
-        process_alert_changes(data.get('features', []), s)
-        return jsonify(data)
-    except req_lib.RequestException as e:
-        app_logger.error(f'Alerts fetch failed: {e}')
-        return jsonify({'error': 'Alert service temporarily unavailable', 'features': []}), 500
+    with _alerts_lock:
+        return jsonify({
+            'features':    _alerts_cache['features'],
+            'fetched_at':  _alerts_cache['fetched_at'],
+            'stale':       _alerts_cache['stale'],
+            'error':       _alerts_cache['error'],
+        })
 
 @app.route('/api/alert_polygons')
 def get_alert_polygons():
-    s = load_settings()
-    try:
-        data     = _alerts_for_point(s.get('map_lat', 28.5383), s.get('map_lon', -81.3792))
-        features = []
-        for f in data.get('features', []):
-            if not f.get('geometry'):
-                continue
-            features.append({
-                'type': 'Feature',
-                'geometry': f['geometry'],
-                'properties': {
-                    'event':    f['properties'].get('event', ''),
-                    'severity': f['properties'].get('severity', 'Unknown'),
-                    'headline': f['properties'].get('headline', ''),
-                },
-            })
-        return jsonify({'type': 'FeatureCollection', 'features': features})
-    except Exception as e:
-        return jsonify({'type': 'FeatureCollection', 'features': [], 'error': str(e)})
+    with _alerts_lock:
+        src = list(_alerts_cache['features'])
+        stale = _alerts_cache['stale']
+        err   = _alerts_cache['error']
+    features = []
+    for f in src:
+        if not f.get('geometry'):
+            continue
+        features.append({
+            'type': 'Feature',
+            'geometry': f['geometry'],
+            'properties': {
+                'event':    f['properties'].get('event', ''),
+                'severity': f['properties'].get('severity', 'Unknown'),
+                'headline': f['properties'].get('headline', ''),
+            },
+        })
+    return jsonify({'type': 'FeatureCollection', 'features': features,
+                    'stale': stale, 'error': err})
 
 # ── API: radar ────────────────────────────────────────────
 @app.route('/api/rainviewer')
@@ -968,7 +986,7 @@ def clear_logs():
 def _fetch_station(sid):
     try:
         resp = req_lib.get(f'https://api.weather.gov/radar/stations/{sid}',
-                           headers=HEADERS, timeout=8)
+                           headers=HEADERS, timeout=(2, 5))
         resp.raise_for_status()
         props     = resp.json().get('properties', {})
         rda       = props.get('rda', {}) or {}
@@ -1013,8 +1031,17 @@ def _write_active_station(sid):
     except Exception as e:
         app.logger.warning(f'Could not persist active station: {e}')
 
-@app.route('/api/radar_status')
-def radar_status():
+_radar_cache = {
+    'payload':    None,
+    'fetched_at': 0.0,
+    'stale':      True,
+}
+_radar_lock = threading.Lock()
+
+def _build_radar_payload():
+    """Hit both stations in parallel and return the same dict shape
+    /api/radar_status used to compute synchronously. Called from the
+    radar-status poller thread."""
     results = {}
     with ThreadPoolExecutor(max_workers=2) as ex:
         for f in as_completed({ex.submit(_fetch_station, s): s
@@ -1040,7 +1067,7 @@ def radar_status():
 
     vcp  = chosen.get('vcp')
     info = VCP_INFO.get(str(vcp or ''), {'seconds': 300, 'mode': 'Unknown', 'label': '~5 min'})
-    return jsonify({
+    return {
         'station': active, 'vcp': vcp,
         'operability_status':    chosen.get('op_status', 'UNKNOWN'),
         'age_minutes':           chosen.get('age_minutes'),
@@ -1054,7 +1081,100 @@ def radar_status():
                 'error': d.get('error')}
             for s, d in results.items()
         },
-    })
+    }
+
+@app.route('/api/radar_status')
+def radar_status():
+    with _radar_lock:
+        payload = _radar_cache['payload']
+        stale   = _radar_cache['stale']
+        ts      = _radar_cache['fetched_at']
+    if payload is None:
+        return jsonify({
+            'station': RADAR_PRIMARY,
+            'vcp': None,
+            'mode': 'Unknown',
+            'label': '—',
+            'scan_interval_seconds': 300,
+            'offline': True,
+            'fallback': False,
+            'stations': {},
+            'stale': True,
+            'fetched_at': 0,
+            'note': 'Initial poll not yet complete',
+        })
+    return jsonify({**payload, 'stale': stale, 'fetched_at': ts})
+
+# ── Upstream pollers ──────────────────────────────────────
+# Two daemon threads keep the alerts and radar-status caches warm.
+# Each does its outbound work on its own dedicated thread — gunicorn
+# request handlers never call api.weather.gov, so a slow upstream
+# can't starve the worker pool the way it used to. Pollers can also
+# be kicked manually via _poke_alerts_poll / _poke_radar_poll when
+# settings change (e.g. map_lat/lon move).
+_ALERTS_POLL_INTERVAL_S = 300   # 5 min
+_RADAR_POLL_INTERVAL_S  = 300   # 5 min
+_alerts_poll_kick = threading.Event()
+_radar_poll_kick  = threading.Event()
+
+def _alerts_poll_once():
+    s   = load_settings()
+    lat = float(s.get('map_lat',  28.5383))
+    lon = float(s.get('map_lon', -81.3792))
+    try:
+        data = _alerts_for_point(lat, lon)
+        features = data.get('features', [])
+        with _alerts_lock:
+            _alerts_cache.update({
+                'features': features, 'fetched_at': time.time(),
+                'lat': lat, 'lon': lon, 'stale': False, 'error': None,
+            })
+        # Side effects (webhook + event log) used to run on the request
+        # path; move them here so the kiosk doesn't pay that cost on
+        # every poll.
+        try: process_alert_changes(features, s)
+        except Exception as e: app_logger.warning(f'process_alert_changes: {e}')
+    except req_lib.RequestException as e:
+        with _alerts_lock:
+            _alerts_cache['stale'] = True
+            _alerts_cache['error'] = str(e)
+        app_logger.warning(f'alerts poll failed: {e}')
+
+def _radar_poll_once():
+    try:
+        payload = _build_radar_payload()
+        with _radar_lock:
+            _radar_cache.update({
+                'payload': payload, 'fetched_at': time.time(),
+                'stale': False,
+            })
+    except Exception as e:  # noqa: BLE001
+        with _radar_lock:
+            _radar_cache['stale'] = True
+        app_logger.warning(f'radar status poll failed: {e}')
+
+def _poller_loop(name, poll_fn, interval_s, kick_event):
+    while True:
+        try:
+            poll_fn()
+        except Exception as e:  # noqa: BLE001
+            app.logger.warning(f'{name} poller iteration failed: {e}')
+        # wait() returns early if kick_event is set, then we clear it
+        # so the next save can kick us again.
+        kick_event.wait(interval_s)
+        kick_event.clear()
+
+def _poke_alerts_poll(): _alerts_poll_kick.set()
+def _poke_radar_poll():  _radar_poll_kick.set()
+
+threading.Thread(
+    target=_poller_loop, daemon=True, name='alerts-poll',
+    args=('alerts', _alerts_poll_once, _ALERTS_POLL_INTERVAL_S, _alerts_poll_kick),
+).start()
+threading.Thread(
+    target=_poller_loop, daemon=True, name='radar-poll',
+    args=('radar-status', _radar_poll_once, _RADAR_POLL_INTERVAL_S, _radar_poll_kick),
+).start()
 
 # ── Init ──────────────────────────────────────────────────
 log_event('SERVER_START', {'event': 'Wet Nose Weather started'})
