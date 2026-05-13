@@ -108,6 +108,8 @@ DEFAULT_SETTINGS = {
     'wms_frame_count':      8,    # NWS/IEM animated frame count (2–24)
     'wms_frame_step_min':   5,    # minutes between frames (1–15)
     'anim_hold_last_ms':    0,    # pause on the final frame before looping (0–10000 ms)
+    'sidebar_auto_hide':    True, # hide the alert sidebar when no active alerts
+    'hard_reload_minutes':  60,   # how often the kiosk performs a defensive location.reload() (0 = never)
     # Notifications
     'webhook_url':            '',
     'webhook_min_severity':   'Severe',
@@ -203,12 +205,14 @@ def validate_settings(data):
     ii('rv_color',0,8); ii('syslog_port',1,65535)
     ii('wms_frame_count',2,24); ii('wms_frame_step_min',1,15)
     ii('anim_hold_last_ms',0,10000)
+    ii('hard_reload_minutes',0,1440)
     en('radar_source',ALLOWED_RADAR_SOURCES); en('nws_product',ALLOWED_NWS_PRODUCTS)
     en('range_ring_station',ALLOWED_RING_STATIONS); en('webhook_min_severity',ALLOWED_SEVERITIES)
     en('syslog_facility',ALLOWED_SYSLOG_FACILITIES)
     for k in ('show_sidebar','show_alert_polygons','show_range_rings',
               'show_satellite_ir','show_hurricane','syslog_enabled',
-              'pin_enabled','pin_radius_enabled','show_storm_cells'):
+              'pin_enabled','pin_radius_enabled','show_storm_cells',
+              'sidebar_auto_hide'):
         if k in data: out[k]=bool(data[k])
     if 'storm_cells_url' in data:
         url = str(data['storm_cells_url']).strip()[:2048]

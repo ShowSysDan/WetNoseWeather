@@ -161,7 +161,7 @@
 const HEALTH_INTERVAL    = 5  * 1000;
 const SETTINGS_INTERVAL  = 10 * 1000;
 const ALERT_INTERVAL     = 5  * 60 * 1000;
-const HARD_RELOAD_MS     = 15 * 60 * 1000;
+const OFFLINE_THRESHOLD  = 3;                     // consecutive failures before we declare offline
 // Both WMS sources are proxied through the Flask app so we can cache
 // tiles on disk. The upstream URLs live in app.py's WMS_SOURCES map.
 const NWS_WMS_BASE       = '/api/wms_tile/nws';
@@ -200,15 +200,18 @@ let stormCellLayer=null, stormCellTimer=null;
 const MI_TO_M = 1609.344;
 const STORM_PROJECT_MIN = 30;        // minutes ahead to draw the track
 const STORM_REFRESH_MS  = 60 * 1000; // poll cadence
-let isOffline=false, settingsTs=0, reloadAt=Date.now()+HARD_RELOAD_MS;
+let isOffline=false, settingsTs=0, reloadAt=0, offlineFailures=0;
 let prevFrameLayer=null;
 
 // ── Clock ────────────────────────────────────────────────
 function updateClock(){
   document.getElementById('clock').textContent =
     new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});
-  const rem=Math.max(0,reloadAt-Date.now());
-  document.getElementById('reload-countdown').textContent =
+  const el = document.getElementById('reload-countdown');
+  if(!el) return;
+  if(!reloadAt){ el.textContent = 'Reload disabled'; return; }
+  const rem = Math.max(0, reloadAt - Date.now());
+  el.textContent =
     `Reload in ${Math.floor(rem/60000)}:${String(Math.floor((rem%60000)/1000)).padStart(2,'0')}`;
 }
 setInterval(updateClock,1000); updateClock();
@@ -716,6 +719,19 @@ function loadHurricaneLayer(){
 }
 
 // ── Alerts ────────────────────────────────────────────────
+function applySidebarVisibility(alertCount){
+  const sidebar = document.getElementById('alert-sidebar');
+  if(!sidebar) return;
+  if(!settings?.show_sidebar){
+    sidebar.classList.add('hidden'); return;
+  }
+  if(settings.sidebar_auto_hide && alertCount === 0){
+    sidebar.classList.add('hidden');
+  } else {
+    sidebar.classList.remove('hidden');
+  }
+}
+
 async function fetchAlerts(){
   try{
     const data=await fetch('/api/alerts',{cache:'no-store'}).then(r=>r.json());
@@ -723,6 +739,7 @@ async function fetchAlerts(){
       (({Extreme:4,Severe:3,Moderate:2,Minor:1,Unknown:0}[b.properties?.severity]??0)-
        ({Extreme:4,Severe:3,Moderate:2,Minor:1,Unknown:0}[a.properties?.severity]??0)));
     renderBanner(alerts); renderSidebar(alerts);
+    applySidebarVisibility(alerts.length);
     document.getElementById('alerts-updated').textContent=
       `Alerts: ${new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}`;
     // Refresh polygons when alerts refresh
@@ -775,13 +792,29 @@ function formatTime(iso){
 async function checkHealth(){
   try{
     await fetch('/api/health',{cache:'no-store',signal:AbortSignal.timeout(4000)});
-    if(isOffline) location.reload();
-    isOffline=false;
-    document.getElementById('offline-overlay').classList.remove('visible');
+    offlineFailures = 0;
+    if(isOffline){
+      // Recovery: don't full-reload. A single 4-second timeout used to
+      // trigger isOffline=true and the next success would reload the
+      // whole page, which fires far more often than the hard-reload
+      // interval. Instead, dismiss the overlay and refresh the
+      // pieces that go stale during an offline window.
+      isOffline = false;
+      document.getElementById('offline-overlay').classList.remove('visible');
+      try{ fetchAlerts(); }catch(e){}
+      if(radarFrames.length > 0 && !animTimer){
+        startAnimation(settings?.anim_speed || 500);
+      }
+    }
   }catch(e){
-    isOffline=true;
-    document.getElementById('offline-overlay').classList.add('visible');
-    stopAnimation();
+    // Require N consecutive failures so a one-off timeout doesn't
+    // black out the kiosk.
+    offlineFailures++;
+    if(offlineFailures >= OFFLINE_THRESHOLD && !isOffline){
+      isOffline = true;
+      document.getElementById('offline-overlay').classList.add('visible');
+      stopAnimation();
+    }
   }
 }
 
@@ -805,9 +838,8 @@ async function init(){
     return;
   }
 
-  if(!settings.show_sidebar)
-    document.getElementById('alert-sidebar').classList.add('hidden');
-
+  // Sidebar visibility is now driven by fetchAlerts (so it can auto-hide
+  // when there are no active alerts) — see applySidebarVisibility.
   initMap(settings);
   await loadRangeRings();
   loadPin();
@@ -830,7 +862,15 @@ async function init(){
   setInterval(fetchAlerts,ALERT_INTERVAL);
   setInterval(checkHealth,HEALTH_INTERVAL);
   setInterval(checkSettings,SETTINGS_INTERVAL);
-  setTimeout(()=>location.reload(),HARD_RELOAD_MS);
+
+  // Hard reload is configurable. 0 = disabled. Default 60 min — long
+  // enough that you don't see it day-to-day, but short enough to
+  // catch slow JS leaks on a multi-day kiosk run.
+  const hardMin = Number(settings.hard_reload_minutes ?? 60);
+  if(hardMin > 0){
+    reloadAt = Date.now() + hardMin*60*1000;
+    setTimeout(() => location.reload(), hardMin*60*1000);
+  }
 }
 
 init();

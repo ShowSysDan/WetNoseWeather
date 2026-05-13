@@ -580,13 +580,32 @@
     </div>
     <div class="field-row">
       <div class="field-label"><strong>Alert Sidebar</strong>
-        <span>Show active-alerts panel on the output display.</span></div>
+        <span>Master switch for the active-alerts panel.</span></div>
       <div class="field-control">
         <div class="toggle-wrap">
           <label class="toggle"><input type="checkbox" id="show_sidebar">
             <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
           <span class="toggle-desc" id="td-sidebar">—</span>
         </div>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Auto-Hide When Clear</strong>
+        <span>Hide the panel automatically when there are zero active alerts; show it the moment one appears. Master switch above must be on for this to take effect.</span></div>
+      <div class="field-control">
+        <div class="toggle-wrap">
+          <label class="toggle"><input type="checkbox" id="sidebar_auto_hide">
+            <div class="toggle-track"></div><div class="toggle-thumb"></div></label>
+          <span class="toggle-desc" id="td-sidebar-auto">—</span>
+        </div>
+      </div>
+    </div>
+    <div class="field-row">
+      <div class="field-label"><strong>Hard Reload (minutes)</strong>
+        <span>Defensive full-page reload interval — catches slow JS leaks on multi-day kiosk runs. 0 disables it. Default 60.</span></div>
+      <div class="field-control">
+        <input class="styled-input" type="number" id="hard_reload_minutes"
+               min="0" max="1440" step="1" style="width:140px">
       </div>
     </div>
   </div>
@@ -916,6 +935,7 @@ function applyToForm(s){
   document.getElementById('wms_frame_count').value=s.wms_frame_count??8;
   document.getElementById('wms_frame_step_min').value=s.wms_frame_step_min??5;
   document.getElementById('anim_hold_last_ms').value=s.anim_hold_last_ms??0;
+  document.getElementById('hard_reload_minutes').value=s.hard_reload_minutes??60;
   updateLoopLength();
   document.getElementById('nws_product').value=s.nws_product||'conus_bref_qcd';
   document.getElementById('range_ring_station').value=s.range_ring_station||'KMLB';
@@ -935,7 +955,7 @@ function applyToForm(s){
 
   // Toggles
   const toggles=[
-    ['show_sidebar','td-sidebar'],['show_alert_polygons','td-polygons'],
+    ['show_sidebar','td-sidebar'],['sidebar_auto_hide','td-sidebar-auto'],['show_alert_polygons','td-polygons'],
     ['show_range_rings','td-rings'],['show_satellite_ir','td-satellite'],
     ['show_hurricane','td-hurricane'],['show_storm_cells','td-storm-cells'],
   ];
@@ -972,7 +992,9 @@ function updatePreview(s){
   document.getElementById('prev-opacity').textContent=(s.opacity??70)+'%';
   document.getElementById('prev-speed').textContent =
     (SPEED_NAMES[s.anim_speed]||((s.anim_speed??500)+'ms'));
-  document.getElementById('prev-sidebar').textContent=s.show_sidebar!==false?'On':'Off';
+  document.getElementById('prev-sidebar').textContent =
+    !s.show_sidebar ? 'Off' :
+    s.sidebar_auto_hide ? 'On (auto-hide)' : 'On';
   const ov=[];
   if(s.show_alert_polygons) ov.push('Polygons');
   if(s.show_range_rings)    ov.push('Rings');
@@ -1050,6 +1072,8 @@ async function saveSettings(){
     map_lon:      parseFloat(document.getElementById('map_lon').value),
     map_zoom:     parseInt(document.getElementById('map_zoom_input').value),
     show_sidebar:        document.getElementById('show_sidebar').checked,
+    sidebar_auto_hide:   document.getElementById('sidebar_auto_hide').checked,
+    hard_reload_minutes: parseInt(document.getElementById('hard_reload_minutes').value)||0,
     show_alert_polygons: document.getElementById('show_alert_polygons').checked,
     show_range_rings:    document.getElementById('show_range_rings').checked,
     range_ring_station:  document.getElementById('range_ring_station').value,
