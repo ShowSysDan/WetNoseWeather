@@ -16,6 +16,8 @@
   "wms_frame_count":     8,
   "wms_frame_step_min":  5,
   "anim_hold_last_ms":   0,
+  "sidebar_auto_hide":   true,
+  "hard_reload_minutes": 60,
   "webhook_url":         "",
   "webhook_min_severity":"Severe",
   "syslog_enabled":      false,

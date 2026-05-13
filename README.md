@@ -11,7 +11,8 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 ### Radar Sources
 - **RainViewer** (animated loop) — 12+ past frames plus nowcast, 8 selectable color palettes, adjustable animation speed, per-minute manifest poll (only reloads tiles when a new timestamp appears).
 - **NWS WMS** (animated) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Renders the last 8 frames at 5-minute intervals using the WMS TIME dimension, animated at the configured speed; the frame-set advances forward as new step boundaries are reached.
-- **IEM Super-Res (N0Q)** (animated) — Iowa Environmental Mesonet's CONUS-wide super-resolution base reflectivity mosaic, sampled at 0.5° azimuth × 250 m range (the same resolution RadarScope shows when you zoom in on base reflectivity). Same WMS TIME-frame animation as the NWS source. Defaults to layer `nexrad-n0q-wmst` at `https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi`.
+- **IEM Super-Res (N0Q mosaic)** (animated) — Iowa Environmental Mesonet's CONUS-wide super-resolution base reflectivity mosaic, sampled at 0.5° azimuth × 250 m range. Same WMS TIME-frame animation as the NWS source. Layer `nexrad-n0q-wmst` at `https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi`. Multi-station max-value compositing means it doesn't pixel-match a RadarScope single-station view.
+- **IEM Per-Station N0B** (latest only, no animation) — IEM's per-radar RIDGE2 product for the currently active WSR-88D (KMLB / KTBW on failover). This is the same N0B super-res 0.5° base reflectivity RadarScope renders for a single station, served as a PNG overlay by IEM's `ridge.cgi`. Re-fetched once a minute. No animation — IEM's per-station archive endpoint doesn't support WMS-T. Use this when you care about pixel-level match to RadarScope's view of a single radar.
 
 ### Radar Station Monitoring
 - Dual-station failover: **KMLB Melbourne** (primary) → **KTBW Tampa Bay** (fallback).
@@ -45,7 +46,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 - Map position and zoom are set entirely from `/settings`.
 - Polls for settings changes every 10 s and reloads automatically when anything changes.
 - Health-checks Flask every 5 s — fades to black if the server dies, reloads when it comes back.
-- Hard reload every 15 minutes (configurable via the `HARD_RELOAD_MS` constant).
+- Hard reload every `hard_reload_minutes` (default 60; settable in `/settings`; `0` disables). Catches slow JS leaks on multi-day kiosks. Transient network blips do **not** trigger a reload — they show the offline overlay until 3 consecutive `/api/health` checks fail, then dismiss it on recovery without reloading.
 - NWS tile-error indicator (appears after ≥3 consecutive tile failures).
 
 ### Settings Interface (`/settings`)
@@ -200,11 +201,13 @@ There are **two** configuration files:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `radar_source` | string | `"rainviewer"` | `"rainviewer"`, `"nws"`, or `"iem"` (IEM super-res N0Q) |
+| `radar_source` | string | `"rainviewer"` | `"rainviewer"`, `"nws"`, `"iem"` (IEM CONUS N0Q mosaic), or `"iem_local"` (per-station N0B, latest only) |
 | `rv_color` | int | `6` | RainViewer color scheme (0–8) |
 | `opacity` | int | `70` | Radar layer opacity (0–100) |
 | `anim_speed` | int | `500` | RainViewer frame interval, ms (50–5000) |
-| `show_sidebar` | bool | `true` | Show alert sidebar on output display |
+| `show_sidebar` | bool | `true` | Master switch for the alert sidebar on the output display. |
+| `sidebar_auto_hide` | bool | `true` | When `show_sidebar` is on, hide the sidebar automatically while there are zero active alerts; show it the moment one appears. |
+| `hard_reload_minutes` | int | `60` | Defensive full-page reload interval (0–1440). `0` disables it. Catches slow JS leaks on multi-day kiosk runs without trying to fix transient network blips by reloading — the offline overlay handles those. |
 | `map_lat` | float | `28.5383` | Map center latitude |
 | `map_lon` | float | `-81.3792` | Map center longitude |
 | `map_zoom` | int | `8` | Leaflet zoom level (2–18) |
