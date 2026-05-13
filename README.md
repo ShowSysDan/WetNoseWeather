@@ -213,6 +213,8 @@ There are **two** configuration files:
 | `show_satellite_ir` | bool | `false` | RainViewer IR satellite overlay |
 | `show_hurricane` | bool | `true` | NHC/nowCOAST tropical-cyclone WMS |
 | `nws_product` | string | `"conus_bref_qcd"` | NWS WMS product layer |
+| `wms_frame_count` | int | `8` | Number of animated WMS frames (NWS/IEM only). 2–24. |
+| `wms_frame_step_min` | int | `5` | Minutes between WMS frames (NWS/IEM only). 1–15. Total loop = count × step. |
 | `webhook_url` | string | `""` | HTTP/HTTPS endpoint for alert POSTs |
 | `webhook_min_severity` | string | `"Severe"` | `Extreme`/`Severe`/`Moderate`/`Minor` |
 | `syslog_enabled` | bool | `false` | Enable UDP syslog output |

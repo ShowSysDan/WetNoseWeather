@@ -103,6 +103,8 @@ DEFAULT_SETTINGS = {
     'show_satellite_ir':    False,
     'show_hurricane':       True,
     'nws_product':          'conus_bref_qcd',
+    'wms_frame_count':      8,    # NWS/IEM animated frame count (2–24)
+    'wms_frame_step_min':   5,    # minutes between frames (1–15)
     # Notifications
     'webhook_url':            '',
     'webhook_min_severity':   'Severe',
@@ -196,6 +198,7 @@ def validate_settings(data):
     fi('pin_radius_miles', 0.1, 500)
     ii('map_zoom',2,18); ii('opacity',0,100); ii('anim_speed',50,5000)
     ii('rv_color',0,8); ii('syslog_port',1,65535)
+    ii('wms_frame_count',2,24); ii('wms_frame_step_min',1,15)
     en('radar_source',ALLOWED_RADAR_SOURCES); en('nws_product',ALLOWED_NWS_PRODUCTS)
     en('range_ring_station',ALLOWED_RING_STATIONS); en('webhook_min_severity',ALLOWED_SEVERITIES)
     en('syslog_facility',ALLOWED_SYSLOG_FACILITIES)
