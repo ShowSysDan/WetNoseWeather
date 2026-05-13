@@ -380,7 +380,11 @@
           </label>
           <label class="radio-btn" id="rb-iem">
             <input type="radio" name="radar_source" value="iem">
-            <span class="radio-label">IEM Super-Res (N0Q)</span>
+            <span class="radio-label">IEM Super-Res (N0Q mosaic)</span>
+          </label>
+          <label class="radio-btn" id="rb-iem-local">
+            <input type="radio" name="radar_source" value="iem_local">
+            <span class="radio-label">IEM Per-Station N0B (RadarScope-style)</span>
           </label>
         </div>
       </div>
@@ -960,7 +964,8 @@ function applyToForm(s){
 function updatePreview(s){
   document.getElementById('prev-source').textContent =
     s.radar_source==='rainviewer' ? 'RainViewer' :
-    s.radar_source==='iem'        ? 'IEM Super-Res' :
+    s.radar_source==='iem'        ? 'IEM N0Q mosaic' :
+    s.radar_source==='iem_local'  ? 'IEM per-station N0B' :
                                     'NWS WMS';
   document.getElementById('prev-loc').textContent=`${(s.map_lat||0).toFixed(3)}, ${(s.map_lon||0).toFixed(3)}`;
   document.getElementById('prev-zoom').textContent=s.map_zoom||8;

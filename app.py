@@ -130,7 +130,7 @@ DEFAULT_SETTINGS = {
 }
 
 # ── Settings helpers ─────────────────────────────────────
-ALLOWED_RADAR_SOURCES    = {'rainviewer', 'nws', 'iem'}
+ALLOWED_RADAR_SOURCES    = {'rainviewer', 'nws', 'iem', 'iem_local'}
 ALLOWED_NWS_PRODUCTS     = {'conus_bref_qcd','conus_cref_qcd','conus_bvel_qcd',
                              'conus_n1p_qcd','conus_ntp_qcd'}
 ALLOWED_RING_STATIONS    = {'KMLB','KTBW'}
@@ -559,12 +559,18 @@ def api_geocode():
 # frame-loop ticks, and source switches become local disk reads.
 
 WMS_SOURCES = {
-    'nws': 'https://opengeo.ncep.noaa.gov/geoserver/conus/ows',
-    'iem': 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi',
+    'nws':       'https://opengeo.ncep.noaa.gov/geoserver/conus/ows',
+    'iem':       'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi',
+    'iem_local': 'https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/ridge.cgi',
 }
 # Layers the proxy will forward. Acts as a whitelist so the endpoint
 # can't be turned into an open WMS proxy.
-WMS_ALLOWED_LAYERS = ALLOWED_NWS_PRODUCTS | {'nexrad-n0q-wmst'}
+WMS_ALLOWED_LAYERS = ALLOWED_NWS_PRODUCTS | {'nexrad-n0q-wmst', 'single'}
+# Allowed RIDGE prod (product code) and sector (radar site, sans K
+# prefix) values. Constrained so /api/wms_tile/iem_local can't be
+# pointed at arbitrary stations or products.
+WMS_RIDGE_PRODS    = {'N0B', 'N0Q', 'N0R'}
+WMS_RIDGE_SECTORS  = {'MLB', 'TBW'}
 
 try:
     WMS_CACHE_MAX_BYTES = int(os.environ.get('WETNOSE_WMS_CACHE_MB', '2048')) * 1024 * 1024
@@ -577,8 +583,13 @@ _WMS_CACHE_GC_EVERY = 300  # seconds between sweeps
 
 def _wms_cache_key(source, params):
     # Canonicalize for stability across Leaflet request orderings.
+    # `sector` and `prod` carry the per-station RIDGE selection. `_t`
+    # is a client-supplied minute bucket used by the per-station feed
+    # (which serves a "latest" image with no TIME dimension) to make
+    # the cache key rotate every minute.
     relevant = ['layers','styles','format','transparent','time',
-                'bbox','width','height','srs','crs','version']
+                'bbox','width','height','srs','crs','version',
+                'sector','prod','_t']
     canonical = '|'.join(f'{k}={params.get(k,"")}' for k in relevant)
     h = hashlib.sha256(f'{source}|{canonical}'.encode()).hexdigest()
     return h
@@ -629,6 +640,9 @@ def _fetch_wms_to_cache(source, params, raw_query=None):
         return (None, None, None)
     if params.get('request', 'GetMap') != 'GetMap':
         return (None, None, None)
+    if source == 'iem_local':
+        if params.get('prod', '')   not in WMS_RIDGE_PRODS:   return (None, None, None)
+        if params.get('sector', '') not in WMS_RIDGE_SECTORS: return (None, None, None)
 
     key        = _wms_cache_key(source, params)
     cache_path = os.path.join(WMS_CACHE_DIR, key + '.png')
@@ -676,6 +690,11 @@ def api_wms_tile(source):
         return jsonify({'error': f'Layer not allowed: {layers}'}), 400
     if params.get('request', 'GetMap') != 'GetMap':
         return jsonify({'error': 'Only GetMap is proxied'}), 400
+    if source == 'iem_local':
+        if params.get('prod', '')   not in WMS_RIDGE_PRODS:
+            return jsonify({'error': 'Bad RIDGE prod'}), 400
+        if params.get('sector', '') not in WMS_RIDGE_SECTORS:
+            return jsonify({'error': 'Bad RIDGE sector'}), 400
 
     cache_path, content, ctype = _fetch_wms_to_cache(
         source, params, raw_query=urlencode(request.args))

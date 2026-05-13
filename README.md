@@ -11,7 +11,8 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 ### Radar Sources
 - **RainViewer** (animated loop) — 12+ past frames plus nowcast, 8 selectable color palettes, adjustable animation speed, per-minute manifest poll (only reloads tiles when a new timestamp appears).
 - **NWS WMS** (animated) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Renders the last 8 frames at 5-minute intervals using the WMS TIME dimension, animated at the configured speed; the frame-set advances forward as new step boundaries are reached.
-- **IEM Super-Res (N0Q)** (animated) — Iowa Environmental Mesonet's CONUS-wide super-resolution base reflectivity mosaic, sampled at 0.5° azimuth × 250 m range (the same resolution RadarScope shows when you zoom in on base reflectivity). Same WMS TIME-frame animation as the NWS source. Defaults to layer `nexrad-n0q-wmst` at `https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q.cgi`.
+- **IEM Super-Res (N0Q mosaic)** (animated) — Iowa Environmental Mesonet's CONUS-wide super-resolution base reflectivity mosaic, sampled at 0.5° azimuth × 250 m range. Same WMS TIME-frame animation as the NWS source. Layer `nexrad-n0q-wmst` at `https://mesonet.agron.iastate.edu/cgi-bin/wms/nexrad/n0q-t.cgi`. Multi-station max-value compositing means it doesn't pixel-match a RadarScope single-station view.
+- **IEM Per-Station N0B** (latest only, no animation) — IEM's per-radar RIDGE2 product for the currently active WSR-88D (KMLB / KTBW on failover). This is the same N0B super-res 0.5° base reflectivity RadarScope renders for a single station, served as a PNG overlay by IEM's `ridge.cgi`. Re-fetched once a minute. No animation — IEM's per-station archive endpoint doesn't support WMS-T. Use this when you care about pixel-level match to RadarScope's view of a single radar.
 
 ### Radar Station Monitoring
 - Dual-station failover: **KMLB Melbourne** (primary) → **KTBW Tampa Bay** (fallback).
@@ -200,7 +201,7 @@ There are **two** configuration files:
 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
-| `radar_source` | string | `"rainviewer"` | `"rainviewer"`, `"nws"`, or `"iem"` (IEM super-res N0Q) |
+| `radar_source` | string | `"rainviewer"` | `"rainviewer"`, `"nws"`, `"iem"` (IEM CONUS N0Q mosaic), or `"iem_local"` (per-station N0B, latest only) |
 | `rv_color` | int | `6` | RainViewer color scheme (0–8) |
 | `opacity` | int | `70` | Radar layer opacity (0–100) |
 | `anim_speed` | int | `500` | RainViewer frame interval, ms (50–5000) |

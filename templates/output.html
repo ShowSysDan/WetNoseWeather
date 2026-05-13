@@ -167,6 +167,10 @@ const HARD_RELOAD_MS     = 15 * 60 * 1000;
 const NWS_WMS_BASE       = '/api/wms_tile/nws';
 const IEM_WMS_BASE       = '/api/wms_tile/iem';
 const IEM_WMS_LAYER      = 'nexrad-n0q-wmst';
+const IEM_LOCAL_WMS_BASE = '/api/wms_tile/iem_local';
+const IEM_LOCAL_LAYER    = 'single';
+const IEM_LOCAL_PROD     = 'N0B';        // super-res base reflectivity, dual-pol era
+const IEM_LOCAL_REFRESH  = 60 * 1000;    // re-fetch the "latest" image every minute
 const NWS_FRAME_COUNT    = 8;            // animated WMS frames
 const NWS_FRAME_STEP_MIN = 5;            // minutes between frames
 const HURRICANE_WMS      = 'https://nowcoast.noaa.gov/arcgis/services/nowcoast/wwa_meteocean_tropicalcyclones_trackintensityfcsts_time/MapServer/WmsServer';
@@ -191,6 +195,7 @@ let animTimer=null, nwsRedrawTimer=null;
 let polygonLayer=null, satelliteLayer=null, hurricaneLayer=null;
 let ringLayers=[], stationCoords={};
 let pinLayer=null, pinRadiusLayer=null, pinLabelLayer=null;
+let iemLocalLayer=null, iemLocalTimer=null, iemLocalSector=null;
 let stormCellLayer=null, stormCellTimer=null;
 const MI_TO_M = 1609.344;
 const STORM_PROJECT_MIN = 30;        // minutes ahead to draw the track
@@ -415,6 +420,69 @@ function loadIEMLayer(s){
     layer:       IEM_WMS_LAYER,
     attribution: 'Iowa Environmental Mesonet (NEXRAD N0Q super-res)',
   });
+}
+
+// Per-station N0B from IEM RIDGE2 (latest only — IEM's single-archive
+// layer doesn't support WMS-T, so we can't animate this feed).
+function _iemLocalBuildLayer(s, sector){
+  const bust = Math.floor(Date.now() / IEM_LOCAL_REFRESH);
+  const l = L.tileLayer.wms(IEM_LOCAL_WMS_BASE, {
+    layers:      IEM_LOCAL_LAYER,
+    format:      'image/png',
+    transparent: true,
+    sector:      sector,
+    prod:        IEM_LOCAL_PROD,
+    _t:          bust,
+    opacity:     (s.opacity ? s.opacity/100 : 0.7),
+    zIndex:      200,
+    attribution: `IEM RIDGE2 K${sector} ${IEM_LOCAL_PROD}`,
+  });
+  let errors = 0;
+  l.on('tileload',  () => {
+    errors = 0;
+    document.getElementById('nws-toast').classList.remove('visible');
+  });
+  l.on('tileerror', () => {
+    errors++;
+    if(errors >= 3){
+      document.getElementById('nws-toast-text').textContent = 'IEM tiles unavailable';
+      document.getElementById('nws-toast').classList.add('visible');
+    }
+  });
+  return l;
+}
+
+async function _iemLocalRefresh(s){
+  let sector = iemLocalSector || 'MLB';
+  try {
+    const st = await fetch('/api/radar_status', {cache:'no-store'}).then(r => r.json());
+    sector = (st.station || 'KMLB').replace(/^K/, '');
+    document.getElementById('source-label').textContent =
+      `K${sector} · ${IEM_LOCAL_PROD} Super-Res${st.fallback?' ⚠ FALLBACK':''} · single-station`;
+  } catch(e){ /* keep last-known */ }
+
+  const fresh = _iemLocalBuildLayer(s, sector);
+  fresh.addTo(map);
+  if(iemLocalLayer){
+    // Cross-fade: keep the old layer up briefly so the swap doesn't flash.
+    const old = iemLocalLayer;
+    setTimeout(() => map.removeLayer(old), 800);
+  }
+  iemLocalLayer  = fresh;
+  iemLocalSector = sector;
+}
+
+function loadIEMLocalLayer(s){
+  // Tear down any frame-based source state.
+  radarFrames.forEach(l => map.removeLayer(l));
+  radarFrames = [];
+  stopAnimation();
+  if(iemLocalTimer){ clearInterval(iemLocalTimer); iemLocalTimer = null; }
+  if(iemLocalLayer){ map.removeLayer(iemLocalLayer); iemLocalLayer = null; }
+  iemLocalSector = null;
+
+  _iemLocalRefresh(s);
+  iemLocalTimer = setInterval(() => _iemLocalRefresh(s), IEM_LOCAL_REFRESH);
 }
 
 async function checkForNewWMSFrame(s, spec){
@@ -752,6 +820,8 @@ async function init(){
     setInterval(()=>checkForNewFrames(settings),60*1000);
   }else if(settings.radar_source==='iem'){
     loadIEMLayer(settings);
+  }else if(settings.radar_source==='iem_local'){
+    loadIEMLocalLayer(settings);
   }else{
     loadNWSLayer(settings);
   }
