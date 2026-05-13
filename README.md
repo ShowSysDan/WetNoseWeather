@@ -1,4 +1,4 @@
-# 🐶 Wet Nose Weather
+# Wet Nose Weather
 
 A Flask-based NEXRAD weather radar display built for kiosk / AV-IT environments. Runs as a locked 1920×1080 output screen with a separate web settings interface for full remote control — no interaction needed on the display itself.
 
@@ -10,7 +10,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 ### Radar Sources
 - **RainViewer** (animated loop) — 12+ past frames plus nowcast, 8 selectable color palettes, adjustable animation speed, per-minute manifest poll (only reloads tiles when a new timestamp appears).
-- **NWS WMS** (live static) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Poll cadence is driven by the active VCP scan mode.
+- **NWS WMS** (animated) — NOAA/NWS CONUS composite tile service. Selectable products: Base Reflectivity, Composite Reflectivity, Base Velocity, 1-hour Precipitation, Storm-Total Precipitation. Renders the last 8 frames at 5-minute intervals using the WMS TIME dimension, animated at the configured speed; the frame-set advances forward as new step boundaries are reached.
 
 ### Radar Station Monitoring
 - Dual-station failover: **KMLB Melbourne** (primary) → **KTBW Tampa Bay** (fallback).
@@ -31,6 +31,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 - **Range Rings** — dashed distance rings at 50/100/200 nm from the selected radar site.
 - **Satellite IR** — RainViewer infrared satellite overlay (latest available frame, free API tier).
 - **Hurricane Track** — NHC / nowCOAST cone-of-uncertainty WMS; invisible when no active storms.
+- **Storm Cell Tracks** — NEXRAD storm-attribute cells from the Iowa Environmental Mesonet (IEM) feed, rendered as markers with a label (cell ID + max dBZ) and a dashed ~30-minute projected track line based on the cell's reported motion. Pulled by the server, cached 30 s, served stale on transient IEM hiccups. URL is overridable in `/settings`.
 
 ### NWS Alerts
 - Active alerts fetched every 5 minutes for the configured location.
@@ -80,7 +81,7 @@ Default geography is Central Florida (KMLB primary, KTBW fallback) but everythin
 
 - Python 3.10+
 - Debian 12 / Ubuntu 22.04+ (or any systemd Linux)
-- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`, and `nominatim.openstreetmap.org` (only used when an admin clicks the pin "Find" address-search button)
+- Outbound network access to `api.weather.gov`, `api.rainviewer.com`, `tilecache.rainviewer.com`, `opengeo.ncep.noaa.gov`, `nowcoast.noaa.gov`, `www.nhc.noaa.gov`, `mesonet.agron.iastate.edu` (only used when the Storm Cell Tracks overlay is enabled), and `nominatim.openstreetmap.org` (only used when an admin clicks the pin "Find" button)
 
 ---
 
@@ -223,6 +224,8 @@ There are **two** configuration files:
 | `pin_label` | string | `""` | Optional label rendered next to the pin (≤80 chars) |
 | `pin_radius_enabled` | bool | `false` | Draw a dashed radius circle around the pin |
 | `pin_radius_miles` | float | `10` | Radius in miles (0.1–500) |
+| `show_storm_cells` | bool | `false` | NEXRAD storm cells with ~30-min projected tracks (IEM source) |
+| `storm_cells_url` | string | *(IEM default)* | GeoJSON FeatureCollection URL. Defaults to `https://mesonet.agron.iastate.edu/geojson/nexrad_attr.geojson`. Override if the default 404s or you want a different feed. SSRF-checked: must be http/https and not a private/loopback address. |
 
 ### NWS WMS products
 
@@ -267,6 +270,7 @@ There are **two** configuration files:
 | `GET`  | `/api/radar_status` | VCP, operability, age, failover state for KMLB+KTBW |
 | `GET`  | `/api/station_coords` | Lat/lon of KMLB and KTBW |
 | `GET`  | `/api/geocode?q=...` | Resolve a US address to lat/lon via Nominatim (cached 24h, rate-limited) |
+| `GET`  | `/api/storm_cells` | Proxied IEM NEXRAD storm-attributes GeoJSON (cached 30s, serves stale data if IEM is briefly unreachable) |
 | `GET`  | `/api/logs?n=200` | Last N alert-log entries (max 500) |
 | `POST` | `/api/logs/clear` | Truncate the alert log |
 
@@ -276,7 +280,7 @@ When a new alert meets the minimum severity threshold, a POST is sent to `webhoo
 
 ```json
 {
-  "text": "🐶 Severe – Tornado Warning",
+  "text": "Severe – Tornado Warning",
   "event": "Tornado Warning",
   "severity": "Severe",
   "headline": "Tornado Warning issued for Orange County FL until 9:45 PM EDT",
@@ -300,6 +304,8 @@ The `text` field works for Slack and Teams incoming webhooks. For other systems,
 | `opengeo.ncep.noaa.gov` | NWS CONUS radar WMS tiles | VCP-driven |
 | `nowcoast.noaa.gov` | Hurricane track / cone WMS | ~10 min |
 | `www.nhc.noaa.gov` | Active storm list | On page load |
+| `mesonet.agron.iastate.edu` | IEM NEXRAD storm-cell GeoJSON (optional) | 1 min poll, 30 s server cache |
+| `nominatim.openstreetmap.org` | Address → lat/lon for pin (admin only, manual) | On demand |
 | `basemaps.cartocdn.com` | Dark basemap tiles | Static CDN |
 
 All outbound requests use a descriptive `User-Agent` (`WetNoseWeather/1.0`) as required by `api.weather.gov`.
