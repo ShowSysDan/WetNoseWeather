@@ -232,6 +232,8 @@ There are **two** configuration files:
 | `pin_label` | string | `""` | Optional label rendered next to the pin (≤80 chars) |
 | `pin_radius_enabled` | bool | `false` | Draw a dashed radius circle around the pin |
 | `pin_radius_miles` | float | `10` | Radius in miles (0.1–500) |
+| `pin_size_px` | int | `14` | Pin dot diameter on the kiosk in pixels (6–48) |
+| `pin_label_size_px` | int | `11` | Pin label font size in pixels (8–36) |
 | `show_storm_cells` | bool | `false` | NEXRAD storm cells with ~30-min projected tracks (IEM source) |
 | `storm_cells_url` | string | *(IEM default)* | GeoJSON FeatureCollection URL. Defaults to `https://mesonet.agron.iastate.edu/geojson/nexrad_attr.geojson`. Override if the default 404s or you want a different feed. SSRF-checked: must be http/https and not a private/loopback address. |
 

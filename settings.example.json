@@ -30,6 +30,8 @@
   "pin_label":           "",
   "pin_radius_enabled":  false,
   "pin_radius_miles":    10,
+  "pin_size_px":         14,
+  "pin_label_size_px":   11,
   "show_storm_cells":    false,
   "storm_cells_url":     "https://mesonet.agron.iastate.edu/geojson/nexrad_attr.geojson",
   "updated_at":          0
