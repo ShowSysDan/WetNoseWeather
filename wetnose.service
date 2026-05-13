@@ -34,11 +34,13 @@ Environment="WETNOSE_HOST=127.0.0.1"
 Environment="WETNOSE_PORT=5100"
 Environment="WETNOSE_DEBUG=0"
 
-# A single worker keeps the in-memory file lock effective. The app is
-# read-mostly and this is plenty for a kiosk deployment.
+# A single worker keeps the in-memory file lock effective. The thread
+# count is high because tile fetching is pure I/O wait — most threads
+# sit blocked on the upstream WMS, so concurrency scales linearly with
+# threads until the browser's per-origin connection cap kicks in.
 ExecStart=/home/leko/wetnoseweather/venv/bin/gunicorn \
     --workers 1 \
-    --threads 4 \
+    --threads 32 \
     --bind ${WETNOSE_HOST}:${WETNOSE_PORT} \
     --timeout 30 \
     --keep-alive 5 \
