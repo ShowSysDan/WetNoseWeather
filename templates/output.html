@@ -57,6 +57,13 @@
     #main{display:flex;height:calc(1080px - 42px)}
     #map{flex:1}
 
+    /* ── Map ── */
+    /* Leaflet's stylesheet sets .leaflet-container background to #ddd by
+       default — that's why a resize lag (e.g. after the sidebar auto-
+       hides) flashes light grey. Force the dark theme here so the seam
+       is invisible even when Leaflet hasn't yet rendered new tiles. */
+    .leaflet-container{background:var(--bg)!important}
+
     /* ── Sidebar ── */
     #alert-sidebar{width:380px;flex-shrink:0;background:var(--surface);
       border-left:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
@@ -722,13 +729,22 @@ function loadHurricaneLayer(){
 function applySidebarVisibility(alertCount){
   const sidebar = document.getElementById('alert-sidebar');
   if(!sidebar) return;
+  const wasHidden = sidebar.classList.contains('hidden');
+
   if(!settings?.show_sidebar){
-    sidebar.classList.add('hidden'); return;
-  }
-  if(settings.sidebar_auto_hide && alertCount === 0){
+    sidebar.classList.add('hidden');
+  } else if(settings.sidebar_auto_hide && alertCount === 0){
     sidebar.classList.add('hidden');
   } else {
     sidebar.classList.remove('hidden');
+  }
+
+  // Leaflet only renders tiles for its container's known size; when the
+  // sidebar hides/shows, #map's flex width changes but Leaflet's
+  // internal viewport doesn't unless we kick it. Without this, the
+  // newly-exposed strip shows .leaflet-container's default light bg.
+  if(wasHidden !== sidebar.classList.contains('hidden') && typeof map !== 'undefined' && map){
+    setTimeout(() => map.invalidateSize(), 50);
   }
 }
 
