@@ -863,7 +863,7 @@ def _do_warm():
                 path, content, _ = f.result()
                 if content is not None:
                     ok += 1
-        app_logger.info(
+        app_logger.debug(
             f'WMS warm: {ok}/{len(tasks)} tiles ready (source={source}, '
             f'frames={count}, zoom={zoom})')
         _wms_cache_maybe_sweep()
